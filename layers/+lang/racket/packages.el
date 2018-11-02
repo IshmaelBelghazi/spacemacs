@@ -2,6 +2,10 @@
   '(
     company
     company-quickhelp
+    ggtags
+    counsel-gtags
+    evil-cleverparens
+    helm-gtags
     racket-mode
     ))
 
@@ -20,10 +24,26 @@
                           (bound-and-true-p company-quickhelp-mode))
                  (company-quickhelp-mode -1))) t))
 
+(defun racket/post-init-ggtags ()
+  (add-hook 'racket-mode-local-vars-hook #'spacemacs/ggtags-mode-enable))
+
+(defun racket/post-init-counsel-gtags ()
+  (spacemacs/counsel-gtags-define-keys-for-mode 'racket-mode))
+
+(defun racket/pre-init-evil-cleverparens ()
+  (spacemacs|use-package-add-hook evil-cleverparens
+    :pre-init
+    (add-to-list 'evil-lisp-safe-structural-editing-modes 'racket-mode)))
+
+(defun racket/post-init-helm-gtags ()
+  (spacemacs/helm-gtags-define-keys-for-mode 'racket-mode))
+
 (defun racket/init-racket-mode ()
   (use-package racket-mode
     :defer t
-    :init (spacemacs/register-repl 'racket-mode 'racket-repl "racket")
+    :init
+    (progn
+      (spacemacs/register-repl 'racket-mode 'racket-repl "racket"))
     :config
     (progn
       ;; smartparens configuration
@@ -79,7 +99,6 @@
       (spacemacs/set-leader-keys-for-major-mode 'racket-mode
         ;; navigation
         "g`" 'racket-unvisit
-        "gg" 'racket-visit-definition
         "gm" 'racket-visit-module
         "gr" 'racket-open-require-path
         ;; doc
@@ -102,9 +121,4 @@
         ;; Tests
         "tb" 'racket-test
         "tB" 'spacemacs/racket-test-with-coverage)
-      (define-key racket-mode-map (kbd "H-r") 'racket-run)
-      ;; remove racket auto-insert of closing delimiter
-      ;; see https://github.com/greghendershott/racket-mode/issues/140
-      (define-key racket-mode-map ")" 'self-insert-command)
-      (define-key racket-mode-map "]" 'self-insert-command)
-      (define-key racket-mode-map "}" 'self-insert-command))))
+      (define-key racket-mode-map (kbd "H-r") 'racket-run))))

@@ -1,6 +1,6 @@
 ;;; funcs.el --- Spacemacs Layouts Layer functions File
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -11,6 +11,30 @@
 
 
 ;; General Persp functions
+
+(defun spacemacs//activate-persp-mode ()
+  "Always activate persp-mode, unless it is already active.
+ (e.g. don't re-activate during `dotspacemacs/sync-configuration-layers' -
+ see issues #5925 and #3875)"
+  (unless (bound-and-true-p persp-mode)
+    (persp-mode)
+    ;; eyebrowse's advice for rename-buffer only updates workspace window
+    ;; configurations that are stored in frame properties, but Spacemacs's
+    ;; persp-mode integration saves workspace window configurations in
+    ;; perspective parameters.  We need to replace eyebrowse's advice with
+    ;; perspective-aware advice in order to ensure that window
+    ;; configurations for inactive perspectives get updated.
+    (when (ad-find-advice 'rename-buffer 'around 'eyebrowse-fixup-window-configs)
+      (ad-disable-advice 'rename-buffer 'around 'eyebrowse-fixup-window-configs)
+      (ad-activate 'rename-buffer))
+    (advice-add 'rename-buffer :around #'spacemacs//fixup-window-configs)))
+
+(defun spacemacs//layout-wait-for-modeline (&rest _)
+  "Assure the mode-line is loaded before restoring the layouts."
+  (advice-remove 'persp-load-state-from-file 'spacemacs//layout-wait-for-modeline)
+  (when (and (configuration-layer/package-used-p 'spaceline)
+             (memq (spacemacs/get-mode-line-theme-name) '(spacemacs all-the-icons custom)))
+    (require 'spaceline-config)))
 
 (defun spacemacs//current-layout-name ()
   "Get name of the current perspective."
@@ -34,6 +58,10 @@ Cancels autosave on exiting perspectives mode."
       (cancel-timer spacemacs--layouts-autosave-timer)
       (setq spacemacs--layouts-autosave-timer nil))))
 
+(defun spacemacs//layout-not-contains-buffer-p (buffer)
+  "Return non-nil if current layout doesn't contain BUFFER."
+  (not (persp-contain-buffer-p buffer)))
+
 (defun spacemacs/jump-to-last-layout ()
   "Open the previously selected layout, if it exists."
   (interactive)
@@ -42,21 +70,32 @@ Cancels autosave on exiting perspectives mode."
                        *persp-hash* 'non-existent))
     (persp-switch spacemacs--last-selected-layout)))
 
-(defun spacemacs/alternate-buffer-in-persp ()
-  "Switch back and forth between current and last buffer in the
-current perspective."
+(defun spacemacs-layouts/non-restricted-buffer-list-helm ()
   (interactive)
-  (with-persp-buffer-list ()
-                          (switch-to-buffer (other-buffer (current-buffer) t))))
+  (let ((ido-make-buffer-list-hook (remove #'persp-restrict-ido-buffers ido-make-buffer-list-hook)))
+    (helm-mini)))
 
-(defun spacemacs-layouts/non-restricted-buffer-list ()
+(defun spacemacs-layouts/non-restricted-buffer-list-ivy ()
   (interactive)
-  (remove-hook 'ido-make-buffer-list-hook  #'persp-restrict-ido-buffers)
-  (helm-mini)
-  (add-hook 'ido-make-buffer-list-hook  #'persp-restrict-ido-buffers))
+  (let ((ivy-ignore-buffers (remove #'spacemacs//layout-not-contains-buffer-p ivy-ignore-buffers)))
+    (ivy-switch-buffer)))
 
 
 ;; Persp transient-state
+
+(defvar spacemacs--persp-display-buffers-func 'ignore
+  "Function to display buffers in the perspective.")
+(defun spacemacs/persp-buffers ()
+  "Call the function defined in `spacemacs--persp-display-buffers-func'"
+  (interactive)
+  (call-interactively spacemacs--persp-display-buffers-func))
+
+(defvar spacemacs--persp-display-perspectives-func 'ignore
+  "Function to display perspectives.")
+(defun spacemacs/persp-perspectives ()
+  "Call the function defined in `spacemacs--persp-display-perspectives-func'"
+  (interactive)
+  (call-interactively spacemacs--persp-display-perspectives-func))
 
 (defun spacemacs//layouts-ts-toggle-hint ()
   "Toggle the full hint docstring for the layouts transient-state."
@@ -95,23 +134,49 @@ current perspective."
                (propertize "?" 'face 'hydra-face-red)
                "] help)")))))
 
+(defun spacemacs//generate-layout-name (pos)
+  "Generate name for layout of position POS.
+POS should be a number between 1 and 9, where 1 represents the
+2nd layout, 2 represents the 3rd and so on. 9 represents the 10th
+layout, which is also knows as the 0th layout.
+
+ If no name can be generated, return nil."
+  (catch 'found
+    ;; return 1st available name
+    (dolist (name (nth pos spacemacs-generic-layout-names))
+      (unless (persp-p (persp-get-by-name name))
+        (throw 'found name)))
+
+    ;; return 1st available name from grab-bag
+    (dolist (name (car spacemacs-generic-layout-names))
+      (unless (persp-p (persp-get-by-name name))
+        (throw 'found name)))))
+
 (defun spacemacs/layout-switch-by-pos (pos)
-  "Switch to perspective of position POS."
+  "Switch to perspective of position POS.
+If POS has no layout, and `dotspacemacs-auto-generate-layout-names'
+is non-nil, create layout with auto-generated name. Otherwise,
+ask the user if a new layout should be created."
   (let ((persp-to-switch
          (nth pos (persp-names-current-frame-fast-ordered))))
     (if persp-to-switch
         (persp-switch persp-to-switch)
-      (when (y-or-n-p
-             (concat "Perspective in this position doesn't exist.\n"
-                     "Do you want to create one? "))
-        (let ((persp-reset-windows-on-nil-window-conf t))
+      (let ((persp-reset-windows-on-nil-window-conf t)
+            (generated-name (and dotspacemacs-auto-generate-layout-names
+                                 (spacemacs//generate-layout-name pos))))
+        (cond
+         (generated-name
+          (persp-switch generated-name))
+         ((y-or-n-p (concat "Layout in this position doesn't exist. "
+                            "Do you want to create one? "))
           (persp-switch nil)
-          (spacemacs/home-delete-other-windows))))))
+          (spacemacs/home-delete-other-windows)))))))
 
 ;; Define all `spacemacs/persp-switch-to-X' functions
 (dolist (i (number-sequence 9 0 -1))
   (eval `(defun ,(intern (format "spacemacs/persp-switch-to-%s" i)) nil
-           ,(format "Switch to layout %s." i)
+           ,(format "Switch to layout %s.\n%s"
+                    i "See `spacemacs/layout-switch-by-pos' for details.")
            (interactive)
            (spacemacs/layout-switch-by-pos ,(if (eq 0 i) 9 (1- i))))))
 
@@ -147,6 +212,33 @@ current perspective."
   (call-interactively 'spacemacs/helm-persp-kill)
   (spacemacs/layouts-transient-state/body))
 
+(defun spacemacs/move-element-left (element list)
+  "Move ELEMENT one step to the left in LIST."
+  (let (value)
+    (dolist (name list value)
+      (if (and (equal name element) (car value))
+          (setq value (cons (car value) (cons name (cdr value))))
+        (setq value (cons name value))))
+    (nreverse value)))
+
+(defun spacemacs/move-element-right (element list)
+  "Move ELEMENT one step to the right in LIST."
+  (nreverse (spacemacs/move-element-left element (reverse list))))
+
+(defun spacemacs/move-current-persp-right ()
+  "Moves the current perspective one step to the right"
+  (interactive)
+  (setq persp-names-cache (spacemacs/move-element-right
+                           (spacemacs//current-layout-name)
+                           persp-names-cache)))
+
+(defun spacemacs/move-current-persp-left ()
+  "Moves the current perspective one step to the left"
+  (interactive)
+  (setq persp-names-cache (spacemacs/move-element-left
+                           (spacemacs//current-layout-name)
+                           persp-names-cache)))
+
 
 ;; Custom Persp transient-state
 
@@ -177,11 +269,11 @@ Available PROPS:
                    (symbol-value name)
                  name))
          (func (spacemacs//custom-layout-func-name name))
-         (binding-prop (car (spacemacs/mplist-get props :binding)))
+         (binding-prop (car (spacemacs/mplist-get-values props :binding)))
          (binding (if (symbolp binding-prop)
                       (symbol-value binding-prop)
                     binding-prop))
-         (body (spacemacs/mplist-get props :body))
+         (body (spacemacs/mplist-get-values props :body))
          (already-defined? (cdr (assoc binding
                                        spacemacs--custom-layout-alist))))
     `(progn
@@ -196,8 +288,11 @@ Available PROPS:
        ;; Check for Clashes
        (if ,already-defined?
            (unless (equal ,already-defined? ,name)
-             (spacemacs-buffer/warning "Replacing existing binding \"%s\" for %s with %s"
-                                ,binding ,already-defined? ,name)
+             (spacemacs-buffer/message "Replacing existing binding \"%s\" for %s with %s"
+                                       ,binding ,already-defined? ,name)
+             (setq spacemacs--custom-layout-alist
+                   (delete (assoc ,binding spacemacs--custom-layout-alist)
+                     spacemacs--custom-layout-alist))
              (push '(,binding . ,name) spacemacs--custom-layout-alist))
          (push '(,binding . ,name) spacemacs--custom-layout-alist)))))
 
@@ -337,19 +432,24 @@ perspectives does."
 
 
 ;; Ivy integration
+(defun spacemacs/ivy-persp-switch-project-advice (project)
+  (let ((persp-reset-windows-on-nil-window-conf t))
+    (persp-switch project)))
 
 (defun spacemacs/ivy-persp-switch-project (arg)
   (interactive "P")
+  (require 'counsel-projectile)
+  (advice-add 'counsel-projectile-switch-project-action
+              :before #'spacemacs/ivy-persp-switch-project-advice)
   (ivy-read "Switch to Project Perspective: "
             (if (projectile-project-p)
                 (cons (abbreviate-file-name (projectile-project-root))
                       (projectile-relevant-known-projects))
               projectile-known-projects)
-            :action (lambda (project)
-                      (let ((persp-reset-windows-on-nil-window-conf t))
-                        (persp-switch project)
-                        (let ((projectile-completion-system 'ivy))
-                          (projectile-switch-project-by-name project))))))
+            :action #'counsel-projectile-switch-project-action
+            :caller 'spacemacs/ivy-persp-switch-project)
+  (advice-remove 'counsel-projectile-switch-project-action
+                 'spacemacs/ivy-persp-switch-project-advice))
 
 
 ;; Eyebrowse
@@ -466,7 +566,7 @@ STATE is a window-state object as returned by `window-state-get'."
   (spacemacs/workspaces-transient-state/body))
 
 (defun spacemacs//workspace-format-name (workspace)
-  "Return a porpertized string given a WORKSPACE name."
+  "Return a propertized string given a WORKSPACE name."
   (let* ((current (eq (eyebrowse--get 'current-slot) (car workspace)))
          (name (nth 2 workspace))
          (number (car workspace))
@@ -492,16 +592,52 @@ STATE is a window-state object as returned by `window-state-get'."
 
 ;; Eyebrowse and Persp integration
 
+(defun spacemacs//get-persp-workspace (&optional persp frame)
+  "Get the correct workspace parameters for perspective.
+PERSP is the perspective, and defaults to the current perspective.
+FRAME is the frame where the parameters are expected to be used, and
+defaults to the current frame."
+  (let ((param-names (if (display-graphic-p frame)
+                         '(gui-eyebrowse-window-configs
+                           gui-eyebrowse-current-slot
+                           gui-eyebrowse-last-slot)
+                       '(term-eyebrowse-window-configs
+                         term-eyebrowse-current-slot
+                         term-eyebrowse-last-slot))))
+    (--map (persp-parameter it persp) param-names)))
+
+(defun spacemacs//set-persp-workspace (workspace-params &optional persp frame)
+  "Set workspace parameters for perspective.
+WORKSPACE-PARAMS should be a list containing 3 elements in this order:
+- window-configs, as returned by (eyebrowse--get 'window-configs)
+- current-slot, as returned by (eyebrowse--get 'current-slot)
+- last-slot, as returned by (eyebrowse--get 'last-slot)
+PERSP is the perspective, and defaults to the current perspective.
+FRAME is the frame where the parameters came from, and defaults to the
+current frame.
+
+Each perspective has two sets of workspace parameters: one set for
+graphical frames, and one set for terminal frames."
+  (let ((param-names (if (display-graphic-p frame)
+                         '(gui-eyebrowse-window-configs
+                           gui-eyebrowse-current-slot
+                           gui-eyebrowse-last-slot)
+                       '(term-eyebrowse-window-configs
+                         term-eyebrowse-current-slot
+                         term-eyebrowse-last-slot))))
+    (--zip-with (set-persp-parameter it other persp)
+                param-names workspace-params)))
+
 (defun spacemacs/load-eyebrowse-for-perspective (type &optional frame)
   "Load an eyebrowse workspace according to a perspective's parameters.
  FRAME's perspective is the perspective that is considered, defaulting to
  the current frame's perspective.
  If the perspective doesn't have a workspace, create one."
   (when (eq type 'frame)
-    (let* ((persp (get-frame-persp frame))
-           (window-configs (persp-parameter 'eyebrowse-window-configs persp))
-           (current-slot (persp-parameter 'eyebrowse-current-slot persp))
-           (last-slot (persp-parameter 'eyebrowse-last-slot persp)))
+    (let* ((workspace-params (spacemacs//get-persp-workspace (get-frame-persp frame) frame))
+           (window-configs (nth 0 workspace-params))
+           (current-slot (nth 1 workspace-params))
+           (last-slot (nth 2 workspace-params)))
       (if window-configs
           (progn
             (eyebrowse--set 'window-configs window-configs frame)
@@ -512,10 +648,22 @@ STATE is a window-state object as returned by `window-state-get'."
         (eyebrowse-init frame)
         (spacemacs/save-eyebrowse-for-perspective frame)))))
 
-(defun spacemacs/update-eyebrowse-for-perspective (_new-persp-name _frame)
-  "Update and save current frame's eyebrowse workspace to its perspective.
-Parameters _NEW-PERSP-NAME and _FRAME are ignored, and exists only for
- compatibility with `persp-before-switch-functions'."
+(defun spacemacs/load-eyebrowse-after-loading-layout (_state-file _phash persp-names)
+  "Bridge between `persp-after-load-state-functions' and
+`spacemacs/load-eyebrowse-for-perspective'.
+
+_PHASH is the hash were the loaded perspectives were placed, and
+PERSP-NAMES are the names of these perspectives."
+  (let ((cur-persp (get-current-persp)))
+    ;; load eyebrowse for current perspective only if it was one of the loaded
+    ;; perspectives
+    (when (member (or (and cur-persp (persp-name cur-persp))
+                      persp-nil-name)
+                  persp-names)
+      (spacemacs/load-eyebrowse-for-perspective 'frame))))
+
+(defun spacemacs/update-eyebrowse-for-perspective (&rest _args)
+  "Update and save current frame's eyebrowse workspace to its perspective."
   (let* ((current-slot (eyebrowse--get 'current-slot))
          (current-tag (nth 2 (assoc current-slot (eyebrowse--get 'window-configs)))))
     (eyebrowse--update-window-config-element
@@ -525,10 +673,19 @@ Parameters _NEW-PERSP-NAME and _FRAME are ignored, and exists only for
 (defun spacemacs/save-eyebrowse-for-perspective (&optional frame)
   "Save FRAME's eyebrowse workspace to FRAME's perspective.
 FRAME defaults to the current frame."
-  (let ((persp (get-frame-persp frame)))
-    (set-persp-parameter
-     'eyebrowse-window-configs (eyebrowse--get 'window-configs frame) persp)
-    (set-persp-parameter
-     'eyebrowse-current-slot (eyebrowse--get 'current-slot frame) persp)
-    (set-persp-parameter
-     'eyebrowse-last-slot (eyebrowse--get 'last-slot frame) persp)))
+  (spacemacs//set-persp-workspace (list (eyebrowse--get 'window-configs frame)
+                                        (eyebrowse--get 'current-slot frame)
+                                        (eyebrowse--get 'last-slot frame))
+                                  (get-frame-persp frame)
+                                  frame))
+
+(defun spacemacs//fixup-window-configs (orig-fn newname &optional unique)
+  "Update the buffer's name in the eyebrowse window-configs of any perspectives
+containing the buffer."
+  (let* ((old (buffer-name))
+         (new (funcall orig-fn newname unique)))
+    (dolist (persp (persp--buffer-in-persps (current-buffer)))
+      (dolist (window-config
+               (append (persp-parameter 'gui-eyebrowse-window-configs persp)
+                       (persp-parameter 'term-eyebrowse-window-configs persp)))
+        (eyebrowse--rename-window-config-buffers window-config old new)))))

@@ -1,6 +1,6 @@
 ;;; core-funcs.el --- Spacemacs Core File
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -14,6 +14,11 @@
 (defvar spacemacs-repl-list '()
   "List of all registered REPLs.")
 
+(defmacro spacemacs|dotspacemacs-backward-compatibility (variable default)
+  "Return `if' sexp for backward compatibility with old dotspacemacs
+values."
+  `(if (boundp ',variable) ,variable ',default))
+
 (defun spacemacs/system-is-mac ()
   (eq system-type 'darwin))
 (defun spacemacs/system-is-linux ()
@@ -25,31 +30,7 @@
   ;; ns is returned instead of mac on Emacs 25+
   (memq (window-system) '(mac ns)))
 
-(defun spacemacs/run-prog-mode-hooks ()
-  "Runs `prog-mode-hook'. Useful for modes that don't derive from
-`prog-mode' but should."
-  (run-hooks 'prog-mode-hook))
-
-(defun spacemacs/run-text-mode-hooks ()
-  "Runs `text-mode-hook'. Useful for modes that don't derive from
-`text-mode' but should."
-  (run-hooks 'text-mode-hook))
-
-(defun spacemacs//get-package-directory (pkg)
-  "Return the directory of PKG. Return nil if not found."
-  (let ((elpa-dir (file-name-as-directory package-user-dir)))
-    (when (file-exists-p elpa-dir)
-      (let ((dir (cl-reduce (lambda (x y) (if x x y))
-                         (mapcar (lambda (x)
-                                   (when (string-match
-                                          (concat "/"
-                                                  (symbol-name pkg)
-                                                  "-[0-9]+") x) x))
-                                 (directory-files elpa-dir 'full))
-                         :initial-value nil)))
-        (when dir (file-name-as-directory dir))))))
-
-(defun spacemacs/mplist-get (plist prop)
+(defun spacemacs/mplist-get-values (plist prop)
   "Get the values associated to PROP in PLIST, a modified plist.
 
 A modified plist is one where keys are keywords and values are
@@ -68,6 +49,21 @@ Currently this function infloops when the list is circular."
     (while (and (consp tail) (not (keywordp (car tail))))
       (push (pop tail) result))
     (nreverse result)))
+
+(defun spacemacs/mplist-get-value (plist prop)
+  "Get a single value associated to PROP in PLIST, a modified plist.
+
+You should always use this function instead of builtin `plist-get'
+in Spacemacs.
+
+A modified plist is one where keys are keywords and values are
+all non-keywords elements that follow it.
+
+If there are multiple properties with the same keyword, only the first property
+and its values is returned.
+
+Currently this function infloops when the list is circular."
+  (car (spacemacs/mplist-get-values plist prop)))
 
 (defun spacemacs/mplist-remove (plist prop)
   "Return a copy of a modified PLIST without PROP and its values.
@@ -90,11 +86,11 @@ and its values are removed."
 (defun spacemacs/dump-vars-to-file (varlist filename)
   "simplistic dumping of variables in VARLIST to a file FILENAME"
   (with-temp-file filename
-    (spacemacs/dump varlist (current-buffer))
+    (spacemacs/dump-vars varlist (current-buffer))
     (make-directory (file-name-directory filename) t)))
 
 ;; From http://stackoverflow.com/questions/2321904/elisp-how-to-save-data-in-a-file
-(defun spacemacs/dump (varlist buffer)
+(defun spacemacs/dump-vars (varlist buffer)
   "insert into buffer the setq statement to recreate the variables in VARLIST"
   (cl-loop for var in varlist do
         (print (list 'setq var (list 'quote (symbol-value var)))
@@ -126,10 +122,10 @@ Supported properties:
 `:define-key CONS CELL'
     One or several cons cells (MAP . KEY) where MAP is a mode map and KEY is a
     key sequence string to be set with `define-key'. "
-  (let ((evil-leader (spacemacs/mplist-get props :evil-leader))
-        (evil-leader-for-mode (spacemacs/mplist-get props :evil-leader-for-mode))
-        (global-key (spacemacs/mplist-get props :global-key))
-        (def-key (spacemacs/mplist-get props :define-key)))
+  (let ((evil-leader (spacemacs/mplist-get-values props :evil-leader))
+        (evil-leader-for-mode (spacemacs/mplist-get-values props :evil-leader-for-mode))
+        (global-key (spacemacs/mplist-get-values props :global-key))
+        (def-key (spacemacs/mplist-get-values props :define-key)))
     (append
      (when evil-leader
        `((dolist (key ',evil-leader)
@@ -149,10 +145,10 @@ Supported properties:
   "Apply visual enchantments to the current buffer.
 The buffer's major mode should be `org-mode'."
   (interactive)
-  (if (not (derived-mode-p 'org-mode))
-      (user-error "org-mode should be enabled in the current buffer.")
-    (org-indent-mode)
-    (view-mode))
+  (unless (derived-mode-p 'org-mode)
+    (user-error "org-mode should be enabled in the current buffer."))
+  (if (require 'space-doc nil t)
+      (space-doc-mode)
     ;; Make ~SPC ,~ work, reference:
     ;; http://stackoverflow.com/questions/24169333/how-can-i-emphasize-or-verbatim-quote-a-comma-in-org-mode
     (setcar (nthcdr 2 org-emphasis-regexp-components) " \t\n")
@@ -163,9 +159,7 @@ The buffer's major mode should be `org-mode'."
                                      ("=" org-verbatim verbatim)
                                      ("~" org-kbd)
                                      ("+"
-                                      (:strike-through t))))
-    (require 'space-doc)
-    (space-doc-mode))
+                                      (:strike-through t))))))
 
 (defun spacemacs/view-org-file (file &optional anchor-text expand-scope)
   "Open org file and apply visual enchantments.
@@ -184,7 +178,7 @@ If EXPAND-SCOPE is `all' then run `outline-show-all' at the matched line."
     ;; If `anchor-text' is GitHub style link.
     (if (string-prefix-p "#" anchor-text)
         ;; If the toc-org package is loaded.
-        (if (configuration-layer/package-usedp 'toc-org)
+        (if (configuration-layer/package-used-p 'toc-org)
             ;; For each heading. Search the heading that corresponds
             ;; to `anchor-text'.
             (while (and (re-search-forward "^[\\*]+\s\\(.*\\).*$" nil t)
@@ -278,5 +272,114 @@ buffer."
   (push `(,(or tag (symbol-name repl-func))
           . (,feature . ,repl-func))
         spacemacs-repl-list))
+
+;; http://stackoverflow.com/questions/11847547/emacs-regexp-count-occurrences
+(defun spacemacs/how-many-str (regexp str)
+  (cl-loop with start = 0
+        for count from 0
+        while (string-match regexp str start)
+        do (setq start (match-end 0))
+        finally return count))
+
+(defun spacemacs/echo (msg &rest args)
+  "Display MSG in echo-area without logging it in *Messages* buffer."
+  (interactive)
+  (let ((message-log-max nil))
+    (apply 'message msg args)))
+
+(defun spacemacs/derived-mode-p (mode &rest modes)
+  "Non-nil if MODE is derived from one of MODES."
+  ;; We could have copied the built-in `derived-mode-p' and modified it a bit so
+  ;; it works on arbitrary modes instead of only the current major-mode. We
+  ;; don't do that because then we will need to modify the function if
+  ;; `derived-mode-p' changes.
+  (let ((major-mode mode))
+    (apply #'derived-mode-p modes)))
+
+(defun spacemacs/alternate-buffer (&optional window)
+  "Switch back and forth between current and last buffer in the
+current window."
+  (interactive)
+  (let ((current-buffer (window-buffer window)))
+    ;; if no window is found in the windows history, `switch-to-buffer' will
+    ;; default to calling `other-buffer'.
+    (switch-to-buffer
+     (cl-find-if (lambda (buffer)
+                   (not (eq buffer current-buffer)))
+                 (mapcar #'car (window-prev-buffers window)))
+     nil t)))
+
+(defun spacemacs/alternate-window ()
+  "Switch back and forth between current and last window in the
+current frame."
+  (interactive)
+  (let (;; switch to first window previously shown in this frame
+        (prev-window (get-mru-window nil t t)))
+    ;; Check window was not found successfully
+    (unless prev-window (user-error "Last window not found."))
+    (select-window prev-window)))
+
+(defun spacemacs/comint-clear-buffer ()
+  (interactive)
+  (let ((comint-buffer-maximum-size 0))
+    (comint-truncate-buffer)))
+
+
+;; Generalized next-error system ("gne")
+
+(defun spacemacs/error-delegate ()
+  "Decide which error API to delegate to.
+
+Delegates to flycheck if it is enabled and the next-error buffer
+is not visible. Otherwise delegates to regular Emacs next-error."
+  (if (and (bound-and-true-p flycheck-mode)
+           (let ((buf (ignore-errors (next-error-find-buffer))))
+             (not (and buf (get-buffer-window buf)))))
+      'flycheck
+    'emacs))
+
+(defun spacemacs/next-error (&optional n reset)
+  "Dispatch to flycheck or standard emacs error."
+  (interactive "P")
+  (let ((sys (spacemacs/error-delegate)))
+    (cond
+     ((eq 'flycheck sys) (call-interactively 'flycheck-next-error))
+     ((eq 'emacs sys) (call-interactively 'next-error)))))
+
+(defun spacemacs/previous-error (&optional n reset)
+  "Dispatch to flycheck or standard emacs error."
+  (interactive "P")
+  (let ((sys (spacemacs/error-delegate)))
+    (cond
+     ((eq 'flycheck sys) (call-interactively 'flycheck-previous-error))
+     ((eq 'emacs sys) (call-interactively 'previous-error)))))
+
+(defvar-local spacemacs--gne-min-line nil
+  "The first line in the buffer that is a valid result.")
+(defvar-local spacemacs--gne-max-line nil
+  "The last line in the buffer that is a valid result.")
+(defvar-local spacemacs--gne-cur-line 0
+  "The current line in the buffer. (It is problematic to use
+point for this.)")
+(defvar-local spacemacs--gne-line-func nil
+  "The function to call to visit the result on a line.")
+
+(defun spacemacs/gne-next (num reset)
+  "A generalized next-error function. This function can be used
+as `next-error-function' in any buffer that conforms to the
+Spacemacs generalized next-error API.
+
+The variables `spacemacs--gne-min-line',
+`spacemacs--gne-max-line', and `spacemacs--line-func' must be
+set."
+  (when reset (setq spacemacs--gne-cur-line
+                    spacemacs--gne-min-line))
+  (setq spacemacs--gne-cur-line
+        (min spacemacs--gne-max-line
+             (max spacemacs--gne-min-line
+                  (+ num spacemacs--gne-cur-line))))
+  (goto-line spacemacs--gne-cur-line)
+  (funcall spacemacs--gne-line-func
+           (buffer-substring (point-at-bol) (point-at-eol))))
 
 (provide 'core-funcs)

@@ -1,6 +1,6 @@
 ;;; funcs.el --- Org Layer functions File for Spacemacs
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -9,36 +9,18 @@
 ;;
 ;;; License: GPLv3
 
-(defun ort/find-todo-file (&optional directory)
-  (let* ((ort/todo-root (or directory (ort/find-root default-directory)))
-         (file (ort/todo-file)))
-    (when (and (not (file-remote-p file))
-               (file-readable-p file))
-      file)))
+;; Autoload space-doc-mode
+(autoload 'space-doc-mode "space-doc" nil 'interactive)
 
-(defun ort/find-all-todo-files ()
-  (require 'projectile)
-  (delq nil (mapcar 'ort/find-todo-file projectile-known-projects)))
+(defun org-projectile/capture (&optional arg)
+  (interactive "P")
+  (if arg
+      (org-projectile-project-todo-completing-read :empty-lines 1)
+    (org-projectile-capture-for-current-project :empty-lines 1)))
 
-(defun ort/list-project-todos ()
-  "List all the TODOs of the current project."
+(defun org-projectile/goto-todos ()
   (interactive)
-  (let ((org-agenda-files (list (ort/find-todo-file))))
-    (org-todo-list)))
-
-(defun ort/list-all-project-todos ()
-  "List all the TODOs of all known projects (excluding remote
-projects)."
-  (interactive)
-  (let ((org-agenda-files (ort/find-all-todo-files)))
-    (org-todo-list)))
-
-(defun ort/list-all-todos ()
-  "List all the TODOs of all known projects (excluding remote
-projects) as well as those from `org-agenda-files'."
-  (interactive)
-  (let ((org-agenda-files (append (org-agenda-files) (ort/find-all-todo-files))))
-    (org-todo-list)))
+  (org-projectile-goto-location-for-project (projectile-project-name)))
 
 
 
@@ -56,3 +38,32 @@ projects) as well as those from `org-agenda-files'."
 (defun spacemacs//surround-code ()
   (let ((dname (read-from-minibuffer "" "")))
     (cons (format "#+BEGIN_SRC %s" (or dname "")) "#+END_SRC")))
+
+
+
+(defun spacemacs//evil-org-mode ()
+  (evil-org-mode)
+  (evil-normalize-keymaps))
+
+(defun spacemacs/org-setup-evil-surround ()
+  (with-eval-after-load 'evil-surround
+    (add-to-list 'evil-surround-pairs-alist '(?: . spacemacs//surround-drawer))
+    (add-to-list 'evil-surround-pairs-alist '(?# . spacemacs//surround-code))))
+
+
+
+(defun spacemacs/org-trello-pull-buffer ()
+  (interactive)
+  (org-trello-sync-buffer 1))
+
+(defun spacemacs/org-trello-push-buffer ()
+  (interactive)
+  (org-trello-sync-buffer))
+
+(defun spacemacs/org-trello-pull-card ()
+  (interactive)
+  (org-trello-sync-card 1))
+
+(defun spacemacs/org-trello-push-card ()
+  (interactive)
+  (org-trello-sync-card))

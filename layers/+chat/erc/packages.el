@@ -1,6 +1,6 @@
 ;;; packages.el --- erc Layer packages File for Spacemacs
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -9,38 +9,34 @@
 ;;
 ;;; License: GPLv3
 
-(setq erc-packages
-      '(
-        company
-        company-emoji
-        emoji-cheat-sheet-plus
-        erc
-        (erc-gitter :location (recipe
-                               :fetcher github
-                               :repo "jleechpe/erc-gitter")
-                    :excluded t)
-        erc-hl-nicks
-        erc-image
-        (erc-sasl :location local)
-        erc-social-graph
-        (erc-tex :location local)
-        erc-view-log
-        (erc-yank :location local :excluded t)
-        erc-yt
-        persp-mode
-        smooth-scrolling
-        ))
+(defconst erc-packages
+  '(
+    company
+    company-emoji
+    emoji-cheat-sheet-plus
+    erc
+    (erc-gitter :location (recipe
+                           :fetcher github
+                           :repo "jleechpe/erc-gitter")
+                :excluded t)
+    erc-hl-nicks
+    erc-image
+    (erc-sasl :location local)
+    erc-social-graph
+    (erc-terminal-notifier :toggle (spacemacs/system-is-mac))
+    (erc-tex :location local)
+    erc-view-log
+    (erc-yank :location local :excluded t)
+    erc-yt
+    linum
+    persp-mode
+    ))
 
-(when (spacemacs/system-is-mac)
-  (push 'erc-terminal-notifier erc-packages))
+(defun erc/post-init-company ()
+  (spacemacs|add-company-backends :backends company-capf :modes erc-mode))
 
-(when (configuration-layer/layer-usedp 'auto-completion)
-  (defun erc/post-init-company ()
-    (spacemacs|add-company-hook erc-mode)
-    (push 'company-capf company-backends-erc-mode))
-
-  (defun erc/post-init-company-emoji ()
-    (push 'company-emoji company-backends-erc-mode)))
+(defun erc/post-init-company-emoji ()
+  (spacemacs|add-company-backends :backends company-emoji :modes erc-mode))
 
 (defun erc/post-init-emoji-cheat-sheet-plus ()
   (add-hook 'erc-mode-hook 'emoji-cheat-sheet-plus-display-mode))
@@ -50,21 +46,14 @@
   (use-package erc
     :defer t
     :init
-    (spacemacs/set-leader-keys
-      "aie" 'erc
-      "aiE" 'erc-tls
-      "aii" 'erc-track-switch-buffer
-      "aiD" 'erc/default-servers)
-    ;; utf-8 always and forever
-    (setq erc-server-coding-system '(utf-8 . utf-8))
-    ;; disable linum mode in erc
-    ;; check if this will not be efficient
-    (defun no-linum (&rest ignore)
-      (when (or 'linum-mode global-linum-mode)
-        (linum-mode 0)))
-    (spacemacs/add-to-hooks 'no-linum '(erc-hook
-                                        erc-mode-hook
-                                        erc-insert-pre-hook))
+    (progn
+      (spacemacs/set-leader-keys
+        "aie" 'erc
+        "aiE" 'erc-tls
+        "aii" 'erc-track-switch-buffer
+        "aiD" 'erc/default-servers)
+      ;; utf-8 always and forever
+      (setq erc-server-coding-system '(utf-8 . utf-8)))
     :config
     (progn
       (use-package erc-autoaway
@@ -88,21 +77,22 @@
             erc-server-coding-system '(utf-8 . utf-8))
       (setq erc-prompt (lambda () (concat "[" (buffer-name) "]")))
 
-      (require 'notifications)
-      (defun erc-global-notify (match-type nick message)
-        "Notify when a message is recieved."
-        (notifications-notify
-         :title nick
-         :body message
-         :app-icon (concat spacemacs-assets-directory "spacemacs.svg")
-         :urgency 'low))
-
-      ;; osx doesn't have dbus support
-      (when (boundp 'dbus-compiled-version)
+      ;; Notifications are enabled if erc-enable-notifications is non-nil, and
+      ;; D-BUS is available (i.e. Linux/BSD).
+      (when (and erc-enable-notifications (boundp 'dbus-compiled-version))
+        (require 'notifications)
+        (defun erc-global-notify (match-type nick message)
+          "Notify when a message is received."
+          (notifications-notify
+           :title nick
+           :body message
+           :app-icon (concat spacemacs-assets-directory "spacemacs.svg")
+           :urgency 'low))
         (add-hook 'erc-text-matched-hook 'erc-global-notify))
 
       ;; keybindings
       (spacemacs/set-leader-keys-for-major-mode 'erc-mode
+        "b" 'erc-switch-to-buffer
         "d" 'erc-input-action
         "j" 'erc-join-channel
         "n" 'erc-channel-names
@@ -115,16 +105,17 @@
     :config
     (add-to-list 'erc-modules 'gitter)))
 
-
-(defun erc/init-erc-hl-nicks ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-hl-nicks ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (use-package erc-hl-nicks)))
+(defun erc/init-erc-hl-nicks ())
 
-(defun erc/init-erc-sasl ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-sasl ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (use-package erc-sasl
+      :defer t
       :if erc-enable-sasl-auth
       ;; Following http://www.emacswiki.org/emacs/ErcSASL
       ;; Maybe an advice would be better?
@@ -154,9 +145,10 @@
                    "0" "*"
                    erc-session-user-full-name))
           (erc-update-mode-line))))))
+(defun erc/init-erc-sasl ())
 
-(defun erc/init-erc-social-graph ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-social-graph ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (use-package erc-social-graph
       :init
@@ -166,25 +158,29 @@
         (setq erc-social-graph-dynamic-graph t)
         (spacemacs/set-leader-keys-for-major-mode 'erc-mode
           "D" 'erc-social-graph-draw)))))
+(defun erc/init-erc-social-graph ())
 
-(defun erc/init-erc-tex ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-tex ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (require 'erc-tex)))
+(defun erc/init-erc-tex ())
 
-(defun erc/init-erc-yt ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-yt ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (use-package erc-yt
       :init (with-eval-after-load 'erc
               (add-to-list 'erc-modules 'youtube)))))
+(defun erc/init-erc-yt ())
 
-(defun erc/init-erc-yank ()
-  (spacemacs|use-package-add-hook 'erc
+(defun erc/pre-init-erc-yank ()
+  (spacemacs|use-package-add-hook erc
     :post-config
     (use-package erc-yank
-      :if (configuration-layer/package-usedp 'gist)
+      :if (configuration-layer/package-used-p 'gist)
       :init (evil-define-key 'normal erc-mode-map "p" 'erc-yank))))
+(defun erc/init-erc-yank ())
 
 (defun erc/init-erc-view-log ()
   (use-package erc-view-log
@@ -213,12 +209,11 @@
       (spacemacs|define-transient-state erc-log
         :title "ERC Log Transient State"
         :doc "\n[_r_] reload the log file  [_>_/_<_] go to the next/prev mention"
+        :evil-leader-for-mode (erc-mode . ".")
         :bindings
         ("r" erc-view-log-reload-file)
         (">" erc-view-log-next-mention)
-        ("<" erc-view-log-previous-mention))
-      (spacemacs/set-leader-keys-for-major-mode 'erc-mode
-        "." 'spacemacs/erc-log-transient-state/body))))
+        ("<" erc-view-log-previous-mention)))))
 
 (defun erc/init-erc-image ()
   (use-package erc-image
@@ -231,24 +226,22 @@
   (use-package erc-terminal-notifier
     :if (executable-find "terminal-notifier")))
 
-(defun erc/post-init-persp-mode ()
-  ;; do not save erc buffers
-  (with-eval-after-load 'persp-mode
-    (push (lambda (b) (with-current-buffer b (eq major-mode 'erc-mode)))
-          persp-filter-save-buffers-functions))
+(defun erc/post-init-linum ()
+  (spacemacs/add-to-hooks 'spacemacs/no-linum '(erc-mode-hook
+                                                erc-insert-pre-hook)))
 
-  (spacemacs|define-custom-layout erc-spacemacs-layout-name
-    :binding erc-spacemacs-layout-binding
-    :body
+(defun erc/pre-init-persp-mode ()
+  (spacemacs|use-package-add-hook persp-mode
+    :post-config
     (progn
-      (defun spacemacs-layouts/add-erc-buffer-to-persp ()
-        (persp-add-buffer (current-buffer)
-                          (persp-get-by-name
-                           erc-spacemacs-layout-name)))
-      (add-hook 'erc-mode-hook #'spacemacs-layouts/add-erc-buffer-to-persp)
-      (if erc-server-list
-          (erc/default-servers)
-        (call-interactively 'erc)))))
+      (add-to-list 'persp-filter-save-buffers-functions
+                   'spacemacs//erc-persp-filter-save-buffers-function)
+      (spacemacs|define-custom-layout erc-spacemacs-layout-name
+        :binding erc-spacemacs-layout-binding
+        :body
+        (progn
+          (add-hook 'erc-mode-hook #'spacemacs//erc-buffer-to-persp)
+          (if erc-server-list
+              (erc/default-servers)
+            (call-interactively 'erc)))))))
 
-(defun erc/post-init-smooth-scrolling ()
-  (add-hook 'erc-mode-hook 'spacemacs//unset-scroll-margin))

@@ -1,10 +1,24 @@
+;;; config.el --- OSX Layer packages File for Spacemacs
+;;
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
+;;
+;; Author: Sylvain Benner <sylvain.benner@gmail.com>
+;; URL: https://github.com/syl20bnr/spacemacs
+;;
+;; This file is not part of GNU Emacs.
+;;
+;;; License: GPLv3
+
 (setq osx-packages
       '(
         exec-path-from-shell
         helm
         launchctl
+        (osx-dictionary :toggle osx-use-dictionary-app)
         osx-trash
-        pbcopy
+        ;; disabled because it introduces input latency with some
+        ;; actions when using emacs -daemon and opening a GUI client
+        ;; pbcopy
         reveal-in-osx-finder
         term
         ))
@@ -26,16 +40,15 @@
         (setq insert-directory-program gls
               dired-listing-switches "-aBhl --group-directories-first")))))
 
-(when (configuration-layer/layer-usedp 'spacemacs-helm)
-  (defun osx/pre-init-helm ()
-    ;; Use `mdfind' instead of `locate'.
-    (when (spacemacs/system-is-mac)
-      (spacemacs|use-package-add-hook helm
-        :post-config
-        ;; Disable fuzzy matchting to make mdfind work with helm-locate
-        ;; https://github.com/emacs-helm/helm/issues/799
-        (setq helm-locate-fuzzy-match nil)
-        (setq helm-locate-command "mdfind -name %s %s")))))
+(defun osx/pre-init-helm ()
+  ;; Use `mdfind' instead of `locate'.
+  (when (spacemacs/system-is-mac)
+    (spacemacs|use-package-add-hook helm
+      :post-config
+      ;; Disable fuzzy matchting to make mdfind work with helm-locate
+      ;; https://github.com/emacs-helm/helm/issues/799
+      (setq helm-locate-fuzzy-match nil)
+      (setq helm-locate-command "mdfind -name %s %s"))))
 
 (defun osx/init-launchctl ()
   (use-package launchctl
@@ -69,16 +82,38 @@
         (kbd "#") 'launchctl-unsetenv
         (kbd "h") 'launchctl-help))))
 
+(defun osx/init-osx-dictionary ()
+  (use-package osx-dictionary
+    :if osx-use-dictionary-app
+    :init (spacemacs/set-leader-keys "xwd" 'osx-dictionary-search-pointer)
+    :commands (osx-dictionary-search-pointer
+               osx-dictionary-search-input
+               osx-dictionary-cli-find-or-recompile)
+    :config
+    (progn
+      (evilified-state-evilify-map osx-dictionary-mode-map
+        :mode osx-dictionary-mode
+        :bindings
+        "q" 'osx-dictionary-quit
+        "r" 'osx-dictionary-read-word
+        "s" 'osx-dictionary-search-input
+        "o" 'osx-dictionary-open-dictionary.app))))
+
 (defun osx/init-osx-trash ()
   (use-package osx-trash
     :if (and (spacemacs/system-is-mac)
              (not (boundp 'mac-system-move-file-to-trash-use-finder)))
     :init (osx-trash-setup)))
 
-(defun osx/init-pbcopy ()
-  (use-package pbcopy
-    :if (and (spacemacs/system-is-mac) (not (display-graphic-p)))
-    :init (turn-on-pbcopy)))
+;; TODO: find a way to enable it in terminal with a dumped Spacemacs
+;; if this package is activate while dumping it makes some action lag
+;; like 'dd' to delete a line etc...
+;; (defun osx/init-pbcopy ()
+;;   (use-package pbcopy
+;;     :if (and (spacemacs/system-is-mac)
+;;              (not (display-graphic-p))
+;;              (not (spacemacs-is-dumping-p)))
+;;     :init (turn-on-pbcopy)))
 
 (defun osx/init-reveal-in-osx-finder ()
   (use-package reveal-in-osx-finder

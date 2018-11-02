@@ -1,6 +1,6 @@
 ;;; packages.el --- BibTeX Layer packages file for Spacemacs.
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Joshua Ellis <josh@jpellis.me>
 ;; URL: https://github.com/JP-Ellis
@@ -9,12 +9,15 @@
 ;;
 ;;; License: GPLv3
 
-(defconst bibtex-packages
+(setq bibtex-packages
       '(
         auctex
         org
         org-ref
         markdown-mode
+        (helm-bibtex :requires helm)
+        biblio
+        biblio-core
         ))
 
 (defun bibtex/post-init-auctex ()
@@ -71,8 +74,14 @@
         "li" 'isbn-to-bibtex
         "lp" 'pubmed-insert-bibtex-from-pmid))))
 
+(defun bibtex/pre-init-org-ref ()
+  (add-hook 'org-mode-hook (lambda () (require 'org-ref))))
+
 (defun bibtex/post-init-markdown-mode ()
   (spacemacs/set-leader-keys-for-major-mode 'markdown-mode
     "ic" 'org-ref-helm-insert-cite-link))
 
-;;; packages-config.el ends here
+(defun bibtex/init-helm-bibtex ())
+(defun bibtex/init-biblio ())
+(defun bibtex/init-biblio-core ())
+

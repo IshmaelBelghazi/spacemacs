@@ -1,6 +1,6 @@
 ;;; packages.el --- Github Layer packages File for Spacemacs
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -12,16 +12,12 @@
 (setq github-packages
       '(
         gist
-        git-link
-        github-browse-file
         github-clone
-        ;; not up to date
-        ;; helm-gist
+        github-search
         magit-gh-pulls
+        magithub
         ;; this package does not exits, we need it to wrap
-        ;; the call to spacemacs/declare-prefix which cannot
-        ;; be place in `config.el' because `which-key' is not
-        ;; available when `config.el' is loaded.
+        ;; the call to spacemacs/declare-prefix.
         (spacemacs-github :location built-in)
         ))
 
@@ -30,62 +26,42 @@
     :defer t
     :init
     (progn
-      (evilified-state-evilify gist-list-mode gist-list-menu-mode-map
-        "f" 'gist-fetch-current
-        "K" 'gist-kill-current
-        "o" 'gist-browse-current-url)
       (spacemacs/declare-prefix "gg" "github gist")
       (spacemacs/set-leader-keys
         "ggb" 'gist-buffer
         "ggB" 'gist-buffer-private
         "ggl" 'gist-list
         "ggr" 'gist-region
-        "ggR" 'gist-region-private))))
-
-;; this mode is not up to date
-;; any contributor to make it up to date is welcome:
-;; https://github.com/emacs-helm/helm-gist
-;;
-;; (defun github/init-helm-gist ()
-;;   (use-package helm-gist
-;;     :commands egist-mode
-;;     :init
-;;     (progn
-;;       (defun spacemacs/helm-gist-list ()
-;;         "List the gists using helm, ensure thath elgist-mode is enabled."
-;;         (interactive)
-;;         (egist-mode)
-;;         (helm-for-gist))
-
-;;       (spacemacs/set-leader-keys "ggh" 'spacemacs/helm-gist-list))
-;;     ))
-
-(defun github/init-github-browse-file ()
-  (use-package github-browse-file
-    :defer t
-    :init
-    (spacemacs/set-leader-keys
-      "gho" 'github-browse-file)))
+        "ggR" 'gist-region-private))
+    :config
+    (progn
+      (evilified-state-evilify-map gist-list-menu-mode-map
+        :mode gist-list-mode
+        :bindings
+        "f" 'gist-fetch-current
+        "K" 'gist-kill-current
+        "o" 'gist-browse-current-url)
+      (evilified-state-evilify-map gist-list-mode-map
+        :mode gist-list-mode
+        :bindings
+        (kbd "gr") 'gist-list-reload))))
 
 (defun github/init-github-clone ()
   (use-package github-clone
     :defer t
     :init
-    (spacemacs/set-leader-keys
-      "gh C-c" 'github-clone)))
-
-(defun github/init-git-link ()
-  (use-package git-link
-    :defer t
-    :init
     (progn
+      (spacemacs/declare-prefix "ghc" "clone")
       (spacemacs/set-leader-keys
-        "ghl" 'spacemacs/git-link
-        "ghL" 'spacemacs/git-link-copy-url-only
-        "ghc" 'spacemacs/git-link-commit
-        "ghC" 'spacemacs/git-link-commit-copy-url-only)
-      ;; default is to open the generated link
-      (setq git-link-open-in-browser t))))
+        "ghcc" 'github-clone
+        "ghcr" 'github-clone-add-existing-remote
+        "ghcf" 'github-clone-fork-remote
+        "ghcu" 'github-clone-add-source-remote))))
+
+(defun github/init-github-search ()
+  (use-package github-search
+    :commands (github-search-clone-repo github-search-user-clone-repo)
+    :init (spacemacs/set-leader-keys "ghc/" 'github-search-clone-repo)))
 
 ;; magit-gh-pulls has to be loaded via a pre-config hook because the source code
 ;; makes assumptions about the status of the magit-mode keymaps that are
@@ -93,22 +69,33 @@
 ;; To avoid errors, magit-gh-pulls must be loaded after magit, but before magit
 ;; is configured by spacemacs.
 
-(defun github/init-magit-gh-pulls ()
+(defun github/pre-init-magit-gh-pulls ()
   (spacemacs|use-package-add-hook magit
     :pre-config
     (progn
       (use-package magit-gh-pulls
-        :init
-        (progn
-          (defun spacemacs/load-gh-pulls-mode ()
-            "Start `magit-gh-pulls-mode' only after a manual request."
-            (interactive)
-            (magit-gh-pulls-mode)
-            (magit-gh-pulls-popup))
-
-          (define-key magit-mode-map "#" 'spacemacs/load-gh-pulls-mode))
         :config
+        (define-key magit-mode-map "#" 'spacemacs/load-gh-pulls-mode)
         (spacemacs|diminish magit-gh-pulls-mode "Github-PR")))))
+(defun github/init-magit-gh-pulls ())
+
+(defun github/init-magithub ()
+  (use-package magithub
+    :after magit
+    :init
+    (setq magithub-dir (concat spacemacs-cache-directory "magithub/"))
+    :config
+    (progn
+      ;; Configure Magithub to be offline by default because loading data from
+      ;; projects with many pull requests or issues can be exorbitantly slow.
+      ;; See <https://github.com/syl20bnr/spacemacs/issues/11176>.
+      (when (null (magit-get "--global" "magithub.online"))
+        (magit-set "false" "--global" "magithub.online")
+        (magit-set "false" "--global" "magithub.status.includeStatusHeader")
+        (magit-set "false" "--global" "magithub.status.includePullRequestsSection")
+        (magit-set "false" "--global" "magithub.status.includeIssuesSection"))
+      (magithub-feature-autoinject t)
+      (define-key magit-status-mode-map "@" #'magithub-dispatch-popup))))
 
 (defun github/init-spacemacs-github ()
   (spacemacs/declare-prefix "gh" "github"))

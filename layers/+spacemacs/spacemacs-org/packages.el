@@ -1,6 +1,6 @@
 ;;; packages.el --- spacemacs-org layer packages file for Spacemacs.
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Boris Buliga <d12frosted@d12frosted.local>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -20,7 +20,7 @@
     ;; to allow the `org' layer to own the `org' package instead of this
     ;; layer. So it is easier for users to steal the ownership of the
     ;; `org' package.
-    (default-org :location built-in)
+    (default-org-config :location built-in)
     (org-plus-contrib :step pre)
     org-bullets
     (space-doc :location local)
@@ -33,7 +33,7 @@
 ;; dummy init function to force installation of `org-plus-contrib'
 (defun spacemacs-org/init-org-plus-contrib ())
 
-(defun spacemacs-org/init-default-org ()
+(defun spacemacs-org/init-default-org-config ()
   (use-package org
     :commands (org-clock-out org-occur-in-agenda-files org-agenda-files)
     :defer t
@@ -75,6 +75,7 @@
       (setq toc-org-max-depth 10)
       (add-hook 'org-mode-hook 'toc-org-enable))))
 
-(defun spacemacs-org/init-space-doc ())
+(defun spacemacs-org/init-space-doc ()
+  (add-hook 'org-mode-hook 'dotspacemacs//prettify-spacemacs-docs))
 
 ;;; packages.el ends here

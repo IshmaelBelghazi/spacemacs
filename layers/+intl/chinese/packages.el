@@ -1,6 +1,6 @@
 ;;; packages.el --- Chinese Layer packages File for Spacemacs
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -13,20 +13,16 @@
 ;; which require an initialization must be listed explicitly in the list.
 (setq chinese-packages
       '(
+        (pyim :toggle (eq chinese-default-input-method 'pinyin))
+        (chinese-wbim :toggle (eq chinese-default-input-method 'wubi))
+        (fcitx :toggle chinese-enable-fcitx)
         find-by-pinyin-dired
         ace-pinyin
         pangu-spacing
-        org))
-
-(if chinese-enable-youdao-dict
-  (push 'youdao-dictionary chinese-packages))
-
-(if (eq chinese-default-input-method 'wubi)
-    (push 'chinese-wbim chinese-packages)
-  (push 'chinese-pyim chinese-packages))
-
-(if (and chinese-enable-fcitx (not (spacemacs/system-is-mswindows))) ;; disable in Windows
-    (push 'fcitx chinese-packages))
+        org
+        (youdao-dictionary :toggle chinese-enable-youdao-dict)
+        chinese-conv
+        ))
 
 (defun chinese/init-fcitx ()
   (use-package fcitx
@@ -64,17 +60,16 @@
             ;; Enable Chinese word segmentation support
             youdao-dictionary-use-chinese-word-segmentation t))))
 
-(defun chinese/init-chinese-pyim ()
-  (use-package chinese-pyim
+(defun chinese/init-pyim ()
+  (use-package pyim
     :if (eq 'pinyin chinese-default-input-method)
     :init
     (progn
-      (setq pyim-use-tooltip t
-            pyim-dicts-directory spacemacs-cache-directory
-            pyim-personal-file (concat spacemacs-cache-directory
-                                       "pyim-personal.txt")
-            default-input-method "chinese-pyim")
-      (evilified-state-evilify pyim-dicts-manager-mode pyim-dicts-manager-mode-map))))
+      (setq pyim-page-tooltip t
+            pyim-directory (expand-file-name "pyim/" spacemacs-cache-directory)
+            pyim-dcache-directory (expand-file-name "dcache/" pyim-directory)
+            default-input-method "pyim")
+      (evilified-state-evilify pyim-dm-mode pyim-dm-mode-map))))
 
 (defun chinese/init-find-by-pinyin-dired ()
   (use-package find-by-pinyin-dired
@@ -99,6 +94,10 @@
                  (add-hook 'org-mode-hook
                            '(lambda ()
                               (set (make-local-variable 'pangu-spacing-real-insert-separtor) t))))))
+
+(defun chinese/init-chinese-conv ()
+  (use-package chinese-conv
+    :defer t))
 
 (defun chinese/post-init-org ()
   (defadvice org-html-paragraph (before org-html-paragraph-advice

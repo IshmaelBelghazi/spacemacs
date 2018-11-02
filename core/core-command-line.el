@@ -1,6 +1,6 @@
 ;;; core-command-line.el --- Spacemacs Core File
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -12,6 +12,16 @@
 (defvar spacemacs-force-resume-layouts nil
   "If non-nil force the current emacs instance to resume layouts
   at start time despite the value of `dotspacemacs-auto-resume-layouts'.")
+
+(defvar spacemacs-insecure nil
+  "If non-nil force Spacemacs to operate without secured protocols.")
+
+(defvar spacemacs-sync-packages t
+  "If non-nil packages are synchronized when the configuration layer system is
+loaded.")
+
+(defvar spacemacs-force-dump nil
+  "If non-nil then force a redump of Emacs.")
 
 (defun spacemacs//parse-command-line (args)
   "Handle Spacemacs specific command line arguments.
@@ -42,14 +52,18 @@ arguments is that we want to process these arguments as soon as possible."
                    i (1+ 1)))
            (setq spacemacs-debugp t))
           ("--insecure"
-           (setq dotspacemacs-elpa-https nil))
+           (setq spacemacs-insecure t))
           ("--no-layer"
-           (setq configuration-layer-no-layer t))
+           (setq configuration-layer-exclude-all-layers t))
           ("--distribution"
-           (setq configuration-layer-distribution (intern (nth (1+ i) args))
+           (setq configuration-layer-force-distribution (intern (nth (1+ i) args))
                  i (1+ i)))
           ("--resume-layouts"
            (setq spacemacs-force-resume-layouts t))
+          ("--no-package-sync"
+           (setq spacemacs-sync-packages nil))
+          ("--force-dump"
+           (setq spacemacs-force-dump t))
           (_ (push arg new-args))))
       (setq i (1+ i)))
     (nreverse new-args)))

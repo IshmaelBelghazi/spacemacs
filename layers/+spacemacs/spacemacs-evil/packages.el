@@ -1,6 +1,6 @@
 ;;; packages.el --- Spacemacs Evil Layer packages File
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -12,24 +12,30 @@
 (setq spacemacs-evil-packages
       '(evil-anzu
         evil-args
+        evil-cleverparens
+        evil-ediff
+        evil-escape
         evil-exchange
+        evil-goggles
         evil-iedit-state
         evil-indent-plus
+        evil-lion
         evil-lisp-state
-        ;; for testing purpose, contribute by reporting bugs and sending PRs
-        ;; to https://github.com/gabesoft/evil-mc
-        ;; To enable it add `(global-evil-mc-mode)' to user-config function
-        evil-mc
         evil-nerd-commenter
         evil-matchit
         evil-numbers
-        evil-search-highlight-persist
+        evil-surround
         ;; Temporarily disabled, pending the resolution of
         ;; https://github.com/7696122/evil-terminal-cursor-changer/issues/8
-        (evil-terminal-cursor-changer :excluded t)
+        ;; evil-terminal-cursor-changer
         evil-tutor
-        (evil-unimpaired :location local)
-        evil-visual-mark-mode))
+        (evil-unimpaired :location (recipe :fetcher local))
+        evil-visual-mark-mode
+        evil-visualstar
+        (hs-minor-mode :location built-in)
+        (linum-relative :toggle (version< emacs-version "26"))
+        vi-tilde-fringe
+        ))
 
 (defun spacemacs-evil/init-evil-anzu ()
   (use-package evil-anzu
@@ -41,30 +47,105 @@
       (setq anzu-search-threshold 1000
             anzu-cons-mode-line-p nil)
       ;; powerline integration
-      (when (configuration-layer/package-usedp 'spaceline)
+      (when (configuration-layer/package-used-p 'spaceline)
         (defun spacemacs/anzu-update-mode-line (here total)
           "Custom update function which does not propertize the status."
           (when anzu--state
-            (let ((status (cl-case anzu--state
-                            (search (format "(%s/%d%s)"
-                                            (anzu--format-here-position here total)
-                                            total (if anzu--overflow-p "+" "")))
-                            (replace-query (format "(%d replace)" total))
-                            (replace (format "(%d/%d)" here total)))))
+            (let ((status
+                   (cl-case anzu--state
+                     (search (format "(%s/%d%s)"
+                                     (anzu--format-here-position here total)
+                                     total (if anzu--overflow-p "+" "")))
+                     (replace-query (format "(%d replace)" total))
+                     (replace (format "(%d/%d)" here total)))))
               status)))
-        (setq anzu-mode-line-update-function 'spacemacs/anzu-update-mode-line)))))
+        (setq anzu-mode-line-update-function
+              'spacemacs/anzu-update-mode-line)))))
 
 (defun spacemacs-evil/init-evil-args ()
   (use-package evil-args
+    :defer t
     :init
     (progn
       ;; bind evil-args text objects
       (define-key evil-inner-text-objects-map "a" 'evil-inner-arg)
       (define-key evil-outer-text-objects-map "a" 'evil-outer-arg))))
 
+(defun spacemacs-evil/init-evil-cleverparens ()
+  (use-package evil-cleverparens
+    :defer t
+    :init
+    (progn
+      (setq evil-cleverparens-use-regular-insert t)
+      (eval `(spacemacs|add-toggle evil-safe-lisp-structural-editing
+               :if (memq dotspacemacs-editing-style '(vim hybrid))
+               :mode evil-cleverparens-mode
+               :documentation "Enable evil-cleverparens."
+               :evil-leader-for-mode
+               ,@(mapcar (lambda (x) (cons x "Ts"))
+                         evil-lisp-safe-structural-editing-modes)))
+      (spacemacs|diminish evil-cleverparens-mode " 🆂" " [s]"))))
+
+(defun spacemacs-evil/init-evil-ediff ()
+  (use-package evil-ediff
+    :after (ediff)
+    :if (memq dotspacemacs-editing-style '(hybrid vim))))
+
+(defun spacemacs-evil/init-evil-escape ()
+  (use-package evil-escape
+    :defer t
+    :init
+    (add-hook 'emacs-startup-hook
+              (lambda ()
+                (spacemacs|add-transient-hook evil-normal-state-exit-hook
+                  (lambda () (require 'evil-escape))
+                  lazy-load-evil-escape-1)
+                (spacemacs|add-transient-hook window-configuration-change-hook
+                  (lambda () (require 'evil-escape))
+                  lazy-load-evil-escape-2)))
+    :config
+    (progn
+      (add-hook 'spacemacs-editing-style-hook #'spacemacs//evil-escape-deactivate-in-holy-mode)
+      ;; apply once when emacs starts
+      (spacemacs//evil-escape-deactivate-in-holy-mode dotspacemacs-editing-style)
+      (spacemacs|hide-lighter evil-escape-mode))))
+
 (defun spacemacs-evil/init-evil-exchange ()
   (use-package evil-exchange
-    :init (evil-exchange-install)))
+    :defer t
+    :init
+    (progn
+      (let ((evil-exchange-key (kbd "gx"))
+            (evil-exchange-cancel-key (kbd "gX")))
+        (define-key evil-normal-state-map evil-exchange-key 'evil-exchange)
+        (define-key evil-visual-state-map evil-exchange-key 'evil-exchange)
+        (define-key evil-normal-state-map evil-exchange-cancel-key
+          'evil-exchange-cancel)
+        (define-key evil-visual-state-map evil-exchange-cancel-key
+          'evil-exchange-cancel)))))
+
+(defun spacemacs-evil/init-evil-goggles ()
+  (use-package evil-goggles
+    :defer t
+    :init
+    (progn
+      ;; disable pulses as it is more distracting than useful and
+      ;; less readable.
+      (setq evil-goggles-pulse nil
+            evil-goggles-async-duration 0.1
+            evil-goggles-blocking-duration 0.05)
+      (when (or vim-style-visual-feedback
+              hybrid-style-visual-feedback)
+        (spacemacs|add-transient-hook evil-operator-state-entry-hook
+          (lambda () (require 'evil-goggles))
+          lazy-load-evil-googles)))
+    :config
+    (progn
+      (if (or vim-style-visual-feedback
+              hybrid-style-visual-feedback)
+          (evil-goggles-mode)
+        (evil-goggles-mode -1))
+      (spacemacs|hide-lighter evil-goggles-mode))))
 
 (defun spacemacs-evil/init-evil-iedit-state ()
   (use-package evil-iedit-state
@@ -76,22 +157,53 @@
             iedit-toggle-key-default nil)
       (spacemacs/set-leader-keys "se" 'evil-iedit-state/iedit-mode))
     :config
-    ;; activate leader in iedit and iedit-insert states
-    (define-key evil-iedit-state-map
-      (kbd dotspacemacs-leader-key) spacemacs-default-map)))
+    (progn
+      ;; set TAB action
+      (add-hook 'spacemacs-editing-style-hook
+                #'spacemacs//iedit-state-TAB-key-bindings)
+      (spacemacs//iedit-state-TAB-key-bindings dotspacemacs-editing-style)
+      ;; activate leader in iedit and iedit-insert states
+      (define-key evil-iedit-state-map
+        (kbd dotspacemacs-leader-key) spacemacs-default-map)
+      (spacemacs//iedit-insert-state-hybrid dotspacemacs-editing-style)
+      (add-hook 'spacemacs-editing-style-hook
+                #'spacemacs//iedit-insert-state-hybrid))))
 
 (defun spacemacs-evil/init-evil-indent-plus ()
   (use-package evil-indent-plus
-    :init (evil-indent-plus-default-bindings)))
+    :defer t
+    :init
+    (progn
+      (define-key evil-inner-text-objects-map "i" 'evil-indent-plus-i-indent)
+      (define-key evil-outer-text-objects-map "i" 'evil-indent-plus-a-indent)
+      (define-key evil-inner-text-objects-map "I" 'evil-indent-plus-i-indent-up)
+      (define-key evil-outer-text-objects-map "I" 'evil-indent-plus-a-indent-up)
+      (define-key evil-inner-text-objects-map "J"
+        'evil-indent-plus-i-indent-up-down)
+      (define-key evil-outer-text-objects-map "J"
+        'evil-indent-plus-a-indent-up-down))))
+
+(defun spacemacs-evil/init-evil-lion ()
+  (use-package evil-lion
+    :defer t
+    :init
+    (progn
+      ;; Override the default keys, as they collide (with what ? :-))
+      (setq evil-lion-left-align-key nil
+            evil-lion-right-align-key nil)
+      (spacemacs/set-leader-keys
+        "xal" 'evil-lion-left
+        "xaL" 'evil-lion-right))
+    :config (evil-lion-mode)))
 
 (defun spacemacs-evil/init-evil-lisp-state ()
   (use-package evil-lisp-state
-    :init (setq evil-lisp-state-global t)
+    :defer t
+    :init
+    (progn
+      (add-hook 'prog-mode-hook 'spacemacs//load-evil-lisp-state)
+      (setq evil-lisp-state-global t))
     :config (spacemacs/set-leader-keys "k" evil-lisp-state-map)))
-
-(defun spacemacs-evil/init-evil-mc ()
-  (use-package evil-mc
-    :defer t))
 
 ;; other commenting functions in funcs.el with keybinds in keybindings.el
 (defun spacemacs-evil/init-evil-nerd-commenter ()
@@ -162,42 +274,41 @@
 
 (defun spacemacs-evil/init-evil-numbers ()
   (use-package evil-numbers
-    :config
+    :defer t
+    :init
     (progn
       (spacemacs|define-transient-state evil-numbers
         :title "Evil Numbers Transient State"
-        :doc "\n[_+_/_=_] increase number [_-_] decrease"
+        :doc
+        "\n[_+_/_=_] increase number  [_-_] decrease  [0..9] prefix  [_q_] quit"
         :bindings
         ("+" evil-numbers/inc-at-pt)
         ("=" evil-numbers/inc-at-pt)
-        ("-" evil-numbers/dec-at-pt))
+        ("-" evil-numbers/dec-at-pt)
+        ("q" nil :exit t))
       (spacemacs/set-leader-keys
         "n+" 'spacemacs/evil-numbers-transient-state/evil-numbers/inc-at-pt
         "n=" 'spacemacs/evil-numbers-transient-state/evil-numbers/inc-at-pt
         "n-" 'spacemacs/evil-numbers-transient-state/evil-numbers/dec-at-pt))))
 
-(defun spacemacs-evil/init-evil-search-highlight-persist ()
-  (use-package evil-search-highlight-persist
+(defun spacemacs-evil/init-evil-surround ()
+  (use-package evil-surround
+    :defer t
     :init
     (progn
-      (defun spacemacs/evil-search-clear-highlight ()
-        "Clear evil-search or evil-ex-search persistent highlights."
-        (interactive)
-        (case evil-search-module
-          ('isearch (evil-search-highlight-persist-remove-all))
-          ('evil-search (evil-ex-nohighlight))))
-      (global-evil-search-highlight-persist)
-      ;; (set-face-attribute )
-      (spacemacs/set-leader-keys "sc" 'spacemacs/evil-search-clear-highlight)
-      (define-key evil-search-highlight-persist-map (kbd "C-x SPC") 'rectangle-mark-mode)
-      (evil-ex-define-cmd "nohlsearch"
-                          'evil-search-highlight-persist-remove-all)
-      (defun spacemacs/adaptive-evil-highlight-persist-face ()
-        (set-face-attribute 'evil-search-highlight-persist-highlight-face nil
-                            :inherit 'region
-                            :background nil
-                            :foreground nil))
-      (spacemacs/adaptive-evil-highlight-persist-face))))
+      (spacemacs|add-transient-hook evil-visual-state-entry-hook
+        (lambda () (require 'evil-surround))
+        lazy-load-evil-surround)
+      (spacemacs|add-transient-hook evil-operator-state-entry-hook
+        (lambda () (require 'evil-surround))
+        lazy-load-evil-surround-2))
+    :config
+    (progn
+      ;; `s' for surround instead of `substitute'
+      ;; see motivation for this change in the documentation
+      (evil-define-key 'visual evil-surround-mode-map "s" 'evil-surround-region)
+      (evil-define-key 'visual evil-surround-mode-map "S" 'evil-substitute)
+      (global-evil-surround-mode 1))))
 
 (defun spacemacs-evil/init-evil-terminal-cursor-changer ()
   (use-package evil-terminal-cursor-changer
@@ -217,92 +328,64 @@
       (spacemacs/set-leader-keys "hT" 'evil-tutor-start))))
 
 (defun spacemacs-evil/init-evil-unimpaired ()
-
-  (defun evil-unimpaired//find-relative-filename (offset)
-    (when buffer-file-name
-      (let* ((directory (f-dirname buffer-file-name))
-             (files (f--files directory (not (s-matches? "^\\.?#" it))))
-             (index (+ (-elem-index buffer-file-name files) offset))
-             (file (and (>= index 0) (nth index files))))
-        (when file
-          (f-expand file directory)))))
-
-  (defun evil-unimpaired/previous-file ()
-    (interactive)
-    (-if-let (filename (evil-unimpaired//find-relative-filename -1))
-        (find-file filename)
-      (user-error "No previous file")))
-
-  (defun evil-unimpaired/next-file ()
-    (interactive)
-    (-if-let (filename (evil-unimpaired//find-relative-filename 1))
-        (find-file filename)
-      (user-error "No next file")))
-
-  (defun evil-unimpaired/paste-above ()
-    (interactive)
-    (evil-insert-newline-above)
-    (evil-paste-after 1))
-
-  (defun evil-unimpaired/paste-below ()
-    (interactive)
-    (evil-insert-newline-below)
-    (evil-paste-after 1))
-
-  (defun evil-unimpaired/insert-space-above ()
-    (interactive)
-    (save-excursion
-      (evil-insert-newline-above)))
-
-  (defun evil-unimpaired/insert-space-below ()
-    (interactive)
-    (save-excursion
-      (evil-insert-newline-below)))
-
-  (defun evil-unimpaired/next-frame ()
-    (interactive)
-    (raise-frame (next-frame)))
-
-  (defun evil-unimpaired/previous-frame ()
-    (interactive)
-    (raise-frame (previous-frame)))
-
-  ;; from tpope's unimpaired
-  (define-key evil-normal-state-map (kbd "[ SPC")
-    'evil-unimpaired/insert-space-above)
-  (define-key evil-normal-state-map (kbd "] SPC")
-    'evil-unimpaired/insert-space-below)
-  (define-key evil-normal-state-map (kbd "[ e") 'move-text-up)
-  (define-key evil-normal-state-map (kbd "] e") 'move-text-down)
-  (define-key evil-visual-state-map (kbd "[ e") ":move'<--1")
-  (define-key evil-visual-state-map (kbd "] e") ":move'>+1")
-  ;; (define-key evil-visual-state-map (kbd "[ e") 'move-text-up)
-  ;; (define-key evil-visual-state-map (kbd "] e") 'move-text-down)
-  (define-key evil-normal-state-map (kbd "[ b") 'spacemacs/previous-useful-buffer)
-  (define-key evil-normal-state-map (kbd "] b") 'spacemacs/next-useful-buffer)
-  (define-key evil-normal-state-map (kbd "[ f") 'evil-unimpaired/previous-file)
-  (define-key evil-normal-state-map (kbd "] f") 'evil-unimpaired/next-file)
-  (define-key evil-normal-state-map (kbd "] l") 'spacemacs/next-error)
-  (define-key evil-normal-state-map (kbd "[ l") 'spacemacs/previous-error)
-  (define-key evil-normal-state-map (kbd "] q") 'spacemacs/next-error)
-  (define-key evil-normal-state-map (kbd "[ q") 'spacemacs/previous-error)
-  (define-key evil-normal-state-map (kbd "[ t") 'evil-unimpaired/previous-frame)
-  (define-key evil-normal-state-map (kbd "] t") 'evil-unimpaired/next-frame)
-  (define-key evil-normal-state-map (kbd "[ w") 'previous-multiframe-window)
-  (define-key evil-normal-state-map (kbd "] w") 'next-multiframe-window)
-  ;; select pasted text
-  (define-key evil-normal-state-map (kbd "g p") (kbd "` [ v ` ]"))
-  ;; paste above or below with newline
-  (define-key evil-normal-state-map (kbd "[ p") 'evil-unimpaired/paste-above)
-  (define-key evil-normal-state-map (kbd "] p") 'evil-unimpaired/paste-below))
+  ;; No laziness here, unimpaired bindings should be available right away.
+  (use-package evil-unimpaired))
 
 (defun spacemacs-evil/init-evil-visual-mark-mode ()
   (use-package evil-visual-mark-mode
     :defer t
     :init
     (spacemacs|add-toggle evil-visual-mark-mode
-      :status evil-visual-mark-mode
-      :on (evil-visual-mark-mode)
-      :off (evil-visual-mark-mode -1)
+      :mode evil-visual-mark-mode
       :documentation "Enable evil visual marks mode."
       :evil-leader "t`")))
+
+(defun spacemacs-evil/init-evil-visualstar ()
+  (use-package evil-visualstar
+    :commands (evil-visualstar/begin-search-forward
+               evil-visualstar/begin-search-backward)
+    :init
+    (progn
+      (define-key evil-visual-state-map (kbd "*")
+        'evil-visualstar/begin-search-forward)
+      (define-key evil-visual-state-map (kbd "#")
+        'evil-visualstar/begin-search-backward))))
+
+(defun spacemacs-evil/init-hs-minor-mode ()
+  (add-hook 'prog-mode-hook 'spacemacs//enable-hs-minor-mode))
+
+(defun spacemacs-evil/init-linum-relative ()
+  (use-package linum-relative
+    :commands (linum-relative-toggle linum-relative-on)
+    :init
+    (progn
+      (when (spacemacs/relative-line-numbers-p)
+        (add-hook 'spacemacs-post-user-config-hook 'linum-relative-on))
+      (spacemacs/set-leader-keys "tr" 'spacemacs/linum-relative-toggle))
+    :config
+    (setq linum-relative-current-symbol "")))
+
+(defun spacemacs-evil/init-vi-tilde-fringe ()
+  (spacemacs|do-after-display-system-init
+   (use-package vi-tilde-fringe
+     :init
+     (progn
+       (global-vi-tilde-fringe-mode)
+       (spacemacs|add-toggle vi-tilde-fringe
+         :mode global-vi-tilde-fringe-mode
+         :documentation
+         "Globally display a ~ on empty lines in the fringe."
+         :evil-leader "T~")
+       ;; don't enable it on some special buffers
+       (with-current-buffer spacemacs-buffer-name
+         (spacemacs/disable-vi-tilde-fringe))
+       (add-hook 'which-key-init-buffer-hook 'spacemacs/disable-vi-tilde-fringe)
+       ;; after a major mode is loaded, check if the buffer is read only
+       ;; if so, disable vi-tilde-fringe-mode
+       (add-hook 'after-change-major-mode-hook
+                 'spacemacs/disable-vi-tilde-fringe-read-only)
+       ;; TODO move this hook if/when we have a layer for eww
+       (spacemacs/add-to-hooks 'spacemacs/disable-vi-tilde-fringe
+                               '(eww-mode-hook)))
+     :config
+     (spacemacs|hide-lighter vi-tilde-fringe-mode))))

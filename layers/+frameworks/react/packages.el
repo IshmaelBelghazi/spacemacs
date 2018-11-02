@@ -1,6 +1,6 @@
-;;; packages.el --- react Layer packages File for Spacemacs
+;;; packages.el --- react layer packages file for Spacemacs. -*- lexical-binding: t -*-
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Andrea Moretti <axyzxp@gmail.com>
 ;; URL: https://github.com/axyz
@@ -9,104 +9,100 @@
 ;;
 ;;; License: GPLv3
 
-(setq react-packages
-      '(
-        company
-        company-tern
-        evil-matchit
-        flycheck
-        js-doc
-        smartparens
-        tern
-        web-beautify
-        web-mode
-        ))
+(defconst react-packages
+  '(
+    add-node-modules-path
+    company
+    emmet-mode
+    evil-matchit
+    flycheck
+    js-doc
+    lsp-javascript-typescript
+    prettier-js
+    rjsx-mode
+    smartparens
+    tern
+    web-beautify
+    yasnippet
+    ))
 
-(when (configuration-layer/layer-usedp 'auto-completion)
-  (defun react/post-init-company ()
-    (spacemacs|add-company-hook react-mode))
+(defun react/post-init-add-node-modules-path ()
+  (add-hook 'rjsx-mode-hook #'add-node-modules-path))
 
-  (defun react/post-init-company-tern ()
-    (push 'company-tern company-backends-react-mode)))
+(defun react/post-init-company ()
+  (add-hook 'rjsx-mode-local-vars-hook #'spacemacs//react-setup-company))
+
+(defun react/post-init-emmet-mode ()
+  (add-hook 'rjsx-mode-hook 'spacemacs/react-emmet-mode))
 
 (defun react/post-init-evil-matchit ()
   (with-eval-after-load 'evil-matchit
-    (plist-put evilmi-plugins 'react-mode '((evilmi-simple-get-tag evilmi-simple-jump)
-                                            (evilmi-javascript-get-tag evilmi-javascript-jump)
-                                            (evilmi-html-get-tag evilmi-html-jump)))))
+    (plist-put evilmi-plugins 'rjsx-mode
+               '((evilmi-simple-get-tag evilmi-simple-jump)
+                 (evilmi-javascript-get-tag evilmi-javascript-jump)
+                 (evilmi-html-get-tag evilmi-html-jump)))))
 
 (defun react/post-init-flycheck ()
   (with-eval-after-load 'flycheck
-    (flycheck-add-mode 'javascript-eslint 'react-mode))
-  (defun react/use-eslint-from-node-modules ()
-    (let* ((root (locate-dominating-file
-                  (or (buffer-file-name) default-directory)
-                  "node_modules"))
-           (global-eslint (executable-find "eslint"))
-           (local-eslint (expand-file-name "node_modules/.bin/eslint"
-                                           root))
-           (eslint (if (file-executable-p local-eslint)
-                       local-eslint
-                     global-eslint)))
-      (setq-local flycheck-javascript-eslint-executable eslint)))
-
-  (add-hook 'react-mode-hook #'react/use-eslint-from-node-modules)
-
-  (spacemacs/add-flycheck-hook 'react-mode))
+    (dolist (checker '(javascript-eslint javascript-standard))
+      (flycheck-add-mode checker 'rjsx-mode)))
+  (spacemacs/enable-flycheck 'rjsx-mode)
+  (add-hook 'rjsx-mode-hook #'spacemacs//javascript-setup-eslint t))
 
 (defun react/post-init-js-doc ()
-  (add-hook 'react-mode-hook 'spacemacs/js-doc-require)
-  (spacemacs/js-doc-set-key-bindings 'react-mode))
+  (add-hook 'rjsx-mode-hook 'spacemacs/js-doc-require)
+  (spacemacs/js-doc-set-key-bindings 'rjsx-mode))
+
+(defun react/post-init-lsp-javascript-typescript ()
+  (spacemacs//setup-lsp-jump-handler 'rjsx-mode))
+
+(defun react/init-rjsx-mode ()
+  (use-package rjsx-mode
+    :defer t
+    :init
+    ;; enable rjsx mode by using magic-mode-alist
+    (defun +javascript-jsx-file-p ()
+      (and buffer-file-name
+           (or (equal (file-name-extension buffer-file-name) "js")
+               (equal (file-name-extension buffer-file-name) "jsx"))
+           (re-search-forward "\\(^\\s-*import React\\|\\( from \\|require(\\)[\"']react\\)"
+                              magic-mode-regexp-match-limit t)
+           (progn (goto-char (match-beginning 1))
+                  (not (spacemacs//react-inside-string-or-comment-q)))))
+
+    (add-to-list 'magic-mode-alist (cons #'+javascript-jsx-file-p 'rjsx-mode))
+
+    ;; setup rjsx backend
+    (add-hook 'rjsx-mode-local-vars-hook #'spacemacs//react-setup-backend)
+
+    :config
+    ;; declare prefix
+    (spacemacs/declare-prefix-for-mode 'rjsx-mode "mr" "refactor")
+    (spacemacs/declare-prefix-for-mode 'rjsx-mode "mrr" "rename")
+    (spacemacs/declare-prefix-for-mode 'rjsx-mode "mh" "documentation")
+    (spacemacs/declare-prefix-for-mode 'rjsx-mode "mg" "goto")
+
+    (spacemacs/set-leader-keys-for-major-mode 'rjsx-mode "rrt" 'rjsx-rename-tag-at-point)
+
+    (with-eval-after-load 'rjsx-mode
+      (define-key rjsx-mode-map (kbd "C-d") nil))))
+
+(defun react/pre-init-prettier-js ()
+  (if (eq javascript-fmt-tool 'prettier)
+      (add-to-list 'spacemacs--prettier-modes 'rjsx-mode)))
 
 (defun react/post-init-smartparens ()
   (if dotspacemacs-smartparens-strict-mode
       (add-hook 'react-mode-hook #'smartparens-strict-mode)
     (add-hook 'react-mode-hook #'smartparens-mode)))
 
-(defun react/init-tern ()
-  (defun react//tern-detect ()
-    "Detect tern binary and warn if not found."
-    (let ((found (executable-find "tern")))
-      (unless found
-        (spacemacs-buffer/warning "tern binary not found!"))
-      found))
-  (use-package tern
-    :defer t
-    :if (react//tern-detect)
-    :init (add-hook 'react-mode-hook 'tern-mode)
-    :config
-    (progn
-      (when javascript-disable-tern-port-files
-        (add-to-list 'tern-command "--no-port-file" 'append))
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "rrV" 'tern-rename-variable)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "hd" 'tern-get-docs)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "ht" 'tern-get-type)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "gg" 'tern-find-definition)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "gG" 'tern-find-definition-by-name)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode (kbd " C-g") 'tern-pop-find-definition)
-      (spacemacs/set-leader-keys-for-major-mode 'react-mode "ht" 'tern-get-type)))
-  (add-hook 'react-mode-hook 'tern-mode))
+(defun react/post-init-tern ()
+  (add-to-list 'tern--key-bindings-modes 'rjsx-mode))
 
-(defun react/post-init-web-beautify ()
-  (spacemacs/set-leader-keys-for-major-mode 'react-mode  "=" 'web-beautify-js))
+(defun react/pre-init-web-beautify ()
+  (if (eq javascript-fmt-tool 'web-beautify)
+      (add-to-list 'spacemacs--web-beautify-modes
+                   (cons 'rjsx-mode 'web-beautify-js))))
 
-(defun react/post-init-web-mode ()
-  (define-derived-mode react-mode web-mode "react")
-  (add-to-list 'auto-mode-alist '("\\.jsx\\'" . react-mode))
-  (add-to-list 'auto-mode-alist '("\\.react.js\\'" . react-mode))
-  (add-to-list 'auto-mode-alist '("\\index.android.js\\'" . react-mode))
-  (add-to-list 'auto-mode-alist '("\\index.ios.js\\'" . react-mode))
-  (add-to-list 'magic-mode-alist '("/\\*\\* @jsx React\\.DOM \\*/" . react-mode))
-  (add-to-list 'magic-mode-alist '("^import React" . react-mode))
-  (defun spacemacs//setup-react-mode ()
-    "Adjust web-mode to accommodate react-mode"
-    (emmet-mode 0)
-    ;; See https://github.com/CestDiego/emmet-mode/commit/3f2904196e856d31b9c95794d2682c4c7365db23
-    (setq-local emmet-expand-jsx-className? t)
-    ;; Enable js-mode snippets
-    (yas-activate-extra-mode 'js-mode)
-    ;; Force jsx content type
-    (web-mode-set-content-type "jsx")
-    ;; Don't auto-quote attribute values
-    (setq-local web-mode-enable-auto-quoting nil))
-  (add-hook 'react-mode-hook 'spacemacs//setup-react-mode))
+(defun react/post-init-yasnippet ()
+  (add-hook 'rjsx-mode-hook #'spacemacs//react-setup-yasnippet))

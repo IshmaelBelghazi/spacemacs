@@ -1,6 +1,6 @@
 ;;; packages.el --- Spacemacs Editing Layer packages File
 ;;
-;; Copyright (c) 2012-2016 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2018 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -14,6 +14,7 @@
         avy
         (bracketed-paste :toggle (version<= emacs-version "25.0.92"))
         clean-aindent-mode
+        editorconfig
         eval-sexp-fu
         expand-region
         (hexl :location built-in)
@@ -21,9 +22,15 @@
         link-hint
         lorem-ipsum
         move-text
+        (origami :toggle (eq 'origami dotspacemacs-folding-method))
+        password-generator
         pcre2el
         smartparens
-        uuidgen))
+        (spacemacs-whitespace-cleanup :location local)
+        string-inflection
+        undo-tree
+        uuidgen
+        ws-butler))
 
 ;; Initialization of packages
 
@@ -33,15 +40,11 @@
     :init
     (progn
       (spacemacs|add-toggle aggressive-indent
-        :status aggressive-indent-mode
-        :on (aggressive-indent-mode)
-        :off (aggressive-indent-mode -1)
+        :mode aggressive-indent-mode
         :documentation "Always keep code indented."
         :evil-leader "tI")
       (spacemacs|add-toggle aggressive-indent-globally
-        :status aggressive-indent-mode
-        :on (global-aggressive-indent-mode)
-        :off (global-aggressive-indent-mode -1)
+        :mode global-aggressive-indent-mode
         :documentation "Always keep code indented globally."
         :evil-leader "t C-I"))
     :config
@@ -52,15 +55,14 @@
 (defun spacemacs-editing/init-avy ()
   (use-package avy
     :defer t
-    :commands (spacemacs/avy-open-url spacemacs/avy-goto-url avy-pop-mark)
+    :commands (spacemacs/avy-open-url spacemacs/avy-goto-url avy-pop-mark avy-with)
     :init
     (progn
       (setq avy-all-windows 'all-frames)
       (setq avy-background t)
       (spacemacs/set-leader-keys
         "jb" 'avy-pop-mark
-        "jj" 'evil-avy-goto-char
-        "jJ" 'evil-avy-goto-char-2
+        "jj" 'evil-avy-goto-char-timer
         "jl" 'evil-avy-goto-line
         "ju" 'spacemacs/avy-goto-url
         "jw" 'evil-avy-goto-word-or-subword-1
@@ -87,14 +89,22 @@
 
 (defun spacemacs-editing/init-clean-aindent-mode ()
   (use-package clean-aindent-mode
-    :defer t
+    :config (clean-aindent-mode)))
+
+(defun spacemacs-editing/init-editorconfig ()
+  (use-package editorconfig
     :init
-    (add-hook 'prog-mode-hook 'clean-aindent-mode)))
+    (spacemacs|diminish editorconfig-mode)
+    :config
+    (editorconfig-mode t)))
 
 (defun spacemacs-editing/init-eval-sexp-fu ()
-  ;; ignore obsolete function warning generated on startup
-  (let ((byte-compile-not-obsolete-funcs (append byte-compile-not-obsolete-funcs '(preceding-sexp))))
-    (require 'eval-sexp-fu)))
+  (use-package eval-sexp-fu
+    :commands eval-sexp-fu-flash-mode))
+
+  ;; ;; ignore obsolete function warning generated on startup
+  ;; (let ((byte-compile-not-obsolete-funcs (append byte-compile-not-obsolete-funcs '(preceding-sexp))))
+  ;;   (require 'eval-sexp-fu)))
 
 (defun spacemacs-editing/init-expand-region ()
   (use-package expand-region
@@ -103,7 +113,7 @@
     :config
     (progn
       ;; add search capability to expand-region
-      (when (configuration-layer/package-usedp 'helm-ag)
+      (when (configuration-layer/package-used-p 'helm-ag)
         (defadvice er/prepare-for-more-expansions-internal
             (around helm-ag/prepare-for-more-expansions-internal activate)
           ad-do-it
@@ -159,9 +169,7 @@
     :defer t
     :init
     (spacemacs|add-toggle hungry-delete
-      :status hungry-delete-mode
-      :on (hungry-delete-mode)
-      :off (hungry-delete-mode -1)
+      :mode hungry-delete-mode
       :documentation "Delete consecutive horizontal whitespace with a single key."
       :evil-leader "td")
     :config
@@ -204,30 +212,90 @@
       "xJ" 'spacemacs/move-text-transient-state/move-text-down
       "xK" 'spacemacs/move-text-transient-state/move-text-up)))
 
-(defun spacemacs-editing/init-pcre2el ()
-  (use-package pcre2el
+(defun spacemacs-editing/init-origami ()
+  (use-package origami
     :defer t
     :init
     (progn
-      (spacemacs/declare-prefix "R" "pcre2el")
-      (spacemacs/set-leader-keys
-        "R/"  'rxt-explain
-        "Rc"  'rxt-convert-syntax
-        "Rx"  'rxt-convert-to-rx
-        "R'"  'rxt-convert-to-strings
-        "Rpe" 'rxt-pcre-to-elisp
-        "R%"  'pcre-query-replace-regexp
-        "Rpx" 'rxt-pcre-to-rx
-        "Rps" 'rxt-pcre-to-sre
-        "Rp'" 'rxt-pcre-to-strings
-        "Rp/" 'rxt-explain-pcre
-        "Re/" 'rxt-explain-elisp
-        "Rep" 'rxt-elisp-to-pcre
-        "Rex" 'rxt-elisp-to-rx
-        "Res" 'rxt-elisp-to-sre
-        "Re'" 'rxt-elisp-to-strings
-        "Ret" 'rxt-toggle-elisp-rx
-        "Rt"  'rxt-toggle-elisp-rx))))
+      (global-origami-mode)
+      (define-key evil-normal-state-map "za" 'origami-forward-toggle-node)
+      (define-key evil-normal-state-map "zc" 'origami-close-node)
+      (define-key evil-normal-state-map "zC" 'origami-close-node-recursively)
+      (define-key evil-normal-state-map "zO" 'origami-open-node-recursively)
+      (define-key evil-normal-state-map "zo" 'origami-open-node)
+      (define-key evil-normal-state-map "zr" 'origami-open-all-nodes)
+      (define-key evil-normal-state-map "zm" 'origami-close-all-nodes)
+      (define-key evil-normal-state-map "zs" 'origami-show-only-node)
+      (define-key evil-normal-state-map "zn" 'origami-next-fold)
+      (define-key evil-normal-state-map "zp" 'origami-previous-fold)
+      (define-key evil-normal-state-map "zR" 'origami-reset)
+      (define-key evil-normal-state-map (kbd "z <tab>") 'origami-recursively-toggle-node)
+      (define-key evil-normal-state-map (kbd "z TAB") 'origami-recursively-toggle-node)
+
+      (spacemacs|define-transient-state fold
+        :title "Code Fold Transient State"
+        :doc "
+ Close^^            Open^^             Toggle^^         Goto^^         Other^^
+ ───────^^───────── ─────^^─────────── ─────^^───────── ──────^^────── ─────^^─────────
+ [_c_] at point     [_o_] at point     [_a_] at point   [_n_] next     [_s_] single out
+ [_C_] recursively  [_O_] recursively  [_A_] all        [_p_] previous [_R_] reset
+ [_m_] all          [_r_] all          [_TAB_] like org ^^             [_q_] quit"
+        :foreign-keys run
+        :on-enter (unless (bound-and-true-p origami-mode) (origami-mode 1))
+        :bindings
+        ("a" origami-forward-toggle-node)
+        ("A" origami-toggle-all-nodes)
+        ("c" origami-close-node)
+        ("C" origami-close-node-recursively)
+        ("o" origami-open-node)
+        ("O" origami-open-node-recursively)
+        ("r" origami-open-all-nodes)
+        ("m" origami-close-all-nodes)
+        ("n" origami-next-fold)
+        ("p" origami-previous-fold)
+        ("s" origami-show-only-node)
+        ("R" origami-reset)
+        ("TAB" origami-recursively-toggle-node)
+        ("<tab>" origami-recursively-toggle-node)
+        ("q" nil :exit t)
+        ("C-g" nil :exit t)
+        ("<SPC>" nil :exit t))
+      ;; Note: The key binding for the fold transient state is defined in
+      ;; evil config
+      )))
+
+(defun spacemacs-editing/init-password-generator ()
+  (use-package password-generator
+    :defer t
+    :init
+    (progn
+      (spacemacs/declare-prefix "ip" "passwords")
+      (evil-leader/set-key
+        "ip1" 'password-generator-simple
+        "ip2" 'password-generator-strong
+        "ip3" 'password-generator-paranoid
+        "ipp" 'password-generator-phonetic
+        "ipn" 'password-generator-numeric))))
+
+(defun spacemacs-editing/post-init-pcre2el ()
+  (spacemacs/declare-prefix "xr" "regular expressions")
+  (spacemacs/declare-prefix "xre" "elisp")
+  (spacemacs/declare-prefix "xrp" "pcre")
+  (spacemacs/set-leader-keys
+    "xr/"  'rxt-explain
+    "xr'"  'rxt-convert-to-strings
+    "xrt"  'rxt-toggle-elisp-rx
+    "xrx"  'rxt-convert-to-rx
+    "xrc"  'rxt-convert-syntax
+    "xre/" 'rxt-explain-elisp
+    "xre'" 'rxt-elisp-to-strings
+    "xrep" 'rxt-elisp-to-pcre
+    "xret" 'rxt-toggle-elisp-rx
+    "xrex" 'rxt-elisp-to-rx
+    "xrp/" 'rxt-explain-pcre
+    "xrp'" 'rxt-pcre-to-strings
+    "xrpe" 'rxt-pcre-to-elisp
+    "xrpx" 'rxt-pcre-to-rx))
 
 (defun spacemacs-editing/init-smartparens ()
   (use-package smartparens
@@ -235,38 +303,33 @@
     :commands (sp-split-sexp sp-newline sp-up-sexp)
     :init
     (progn
+      ;; settings
+      (setq sp-show-pair-delay
+            ;; Use this form to allow users to override this setting from
+            ;; dotspacemacs/user-init
+            (or (bound-and-true-p sp-show-pair-delay) 0.2)
+            ;; fix paren highlighting in normal mode
+            sp-show-pair-from-inside t
+            sp-cancel-autoskip-on-backward-movement nil
+            sp-highlight-pair-overlay nil
+            sp-highlight-wrap-overlay nil
+            sp-highlight-wrap-tag-overlay nil)
       (spacemacs/add-to-hooks (if dotspacemacs-smartparens-strict-mode
                                   'smartparens-strict-mode
                                 'smartparens-mode)
                               '(prog-mode-hook comint-mode-hook))
-
       ;; enable smartparens-mode in `eval-expression'
-      (defun conditionally-enable-smartparens-mode ()
-        "Enable `smartparens-mode' in the minibuffer, during `eval-expression'."
-        (if (eq this-command 'eval-expression)
-            (smartparens-mode)))
-
-      (add-hook 'minibuffer-setup-hook 'conditionally-enable-smartparens-mode)
-
+      (add-hook 'minibuffer-setup-hook 'spacemacs//conditionally-enable-smartparens-mode)
+      ;; toggles
       (spacemacs|add-toggle smartparens
-        :status smartparens-mode
-        :on (smartparens-mode)
-        :off (smartparens-mode -1)
+        :mode smartparens-mode
         :documentation "Enable smartparens."
         :evil-leader "tp")
-
       (spacemacs|add-toggle smartparens-globally
-        :status smartparens-mode
-        :on (smartparens-global-mode)
-        :off (smartparens-global-mode -1)
+        :mode smartparens-global-mode
         :documentation "Enable smartparens globally."
         :evil-leader "t C-p")
-
-      (setq sp-show-pair-delay 0.2
-            ;; fix paren highlighting in normal mode
-            sp-show-pair-from-inside t
-            sp-cancel-autoskip-on-backward-movement nil)
-
+      ;; key bindings
       (spacemacs/set-leader-keys
         "js" 'sp-split-sexp
         "jn" 'sp-newline))
@@ -274,43 +337,89 @@
     (progn
       (require 'smartparens-config)
       (spacemacs|diminish smartparens-mode " ⓟ" " p")
-
+      (spacemacs//adaptive-smartparent-pair-overlay-face)
+      (add-hook 'spacemacs-post-theme-change-hook
+                'spacemacs//adaptive-smartparent-pair-overlay-face)
       (show-smartparens-global-mode +1)
-
-      (defun spacemacs/smartparens-pair-newline (id action context)
-        (save-excursion
-          (newline)
-          (indent-according-to-mode)))
-
-      (defun spacemacs/smartparens-pair-newline-and-indent (id action context)
-        (spacemacs/smartparens-pair-newline id action context)
-        (indent-according-to-mode))
-
       ;; don't create a pair with single quote in minibuffer
       (sp-local-pair 'minibuffer-inactive-mode "'" nil :actions nil)
-
       (sp-pair "{" nil :post-handlers
                '(:add (spacemacs/smartparens-pair-newline-and-indent "RET")))
       (sp-pair "[" nil :post-handlers
                '(:add (spacemacs/smartparens-pair-newline-and-indent "RET")))
-
-      (defun spacemacs/smart-closing-parenthesis ()
-        (interactive)
-        (let* ((sp-navigate-close-if-unbalanced t)
-               (current-pos (point))
-               (current-line (line-number-at-pos current-pos))
-               (next-pos (save-excursion
-                           (sp-up-sexp)
-                           (point)))
-               (next-line (line-number-at-pos next-pos)))
-          (cond
-           ((and (= current-line next-line)
-                 (not (= current-pos next-pos)))
-            (sp-up-sexp))
-           (t
-            (insert-char ?\))))))
       (when dotspacemacs-smart-closing-parenthesis
-          (define-key evil-insert-state-map ")" 'spacemacs/smart-closing-parenthesis)))))
+        (define-key evil-insert-state-map ")"
+          'spacemacs/smart-closing-parenthesis)))))
+
+(defun spacemacs-editing/init-spacemacs-whitespace-cleanup ()
+  (use-package spacemacs-whitespace-cleanup
+    :commands (spacemacs-whitespace-cleanup-mode
+               global-spacemacs-whitespace-cleanup-mode)
+    :init
+    (progn
+      (spacemacs|add-toggle whitespace-cleanup
+        :mode spacemacs-whitespace-cleanup-mode
+        :documentation "Automatic whitespace clean up."
+        :on-message (spacemacs-whitespace-cleanup/on-message)
+        :evil-leader "tW")
+      (spacemacs|add-toggle global-whitespace-cleanup
+        :mode global-spacemacs-whitespace-cleanup-mode
+        :status spacemacs-whitespace-cleanup-mode
+        :on (let ((spacemacs-whitespace-cleanup-globally t))
+              (spacemacs-whitespace-cleanup-mode))
+        :off (let ((spacemacs-whitespace-cleanup-globally t))
+               (spacemacs-whitespace-cleanup-mode -1))
+        :on-message (spacemacs-whitespace-cleanup/on-message t)
+        :documentation "Global automatic whitespace clean up."
+        :evil-leader "t C-S-w")
+      (with-eval-after-load 'ws-butler
+        (when dotspacemacs-whitespace-cleanup
+          (spacemacs/toggle-global-whitespace-cleanup-on))))
+    :config
+    (progn
+      (spacemacs|diminish spacemacs-whitespace-cleanup-mode " Ⓦ" " W")
+      (spacemacs|diminish global-spacemacs-whitespace-cleanup-mode
+                          " Ⓦ" " W"))))
+
+(defun spacemacs-editing/init-string-inflection ()
+  (use-package string-inflection
+    :init
+    (progn
+      (spacemacs|define-transient-state string-inflection
+        :title "String Inflection Transient State"
+        :doc "\n [_i_] cycle"
+        :bindings
+        ("i" string-inflection-all-cycle))
+      (spacemacs/declare-prefix "xi" "inflection")
+      (spacemacs/set-leader-keys
+        "xic" 'string-inflection-lower-camelcase
+        "xiC" 'string-inflection-camelcase
+        "xii" 'spacemacs/string-inflection-transient-state/body
+        "xi-" 'string-inflection-kebab-case
+        "xik" 'string-inflection-kebab-case
+        "xi_" 'string-inflection-underscore
+        "xiu" 'string-inflection-underscore
+        "xiU" 'string-inflection-upcase))))
+
+(defun spacemacs-editing/init-undo-tree ()
+  (use-package undo-tree
+    :defer t
+    :init (setq undo-tree-visualizer-timestamps t
+                undo-tree-visualizer-diff t)
+    :config
+    (progn
+      ;; restore diff window after quit.  TODO fix upstream
+      (defun spacemacs/undo-tree-restore-default ()
+        (setq undo-tree-visualizer-diff t))
+      (advice-add 'undo-tree-visualizer-quit :after #'spacemacs/undo-tree-restore-default)
+      (spacemacs|hide-lighter undo-tree-mode)
+      (evilified-state-evilify-map undo-tree-visualizer-mode-map
+        :mode undo-tree-visualizer-mode
+        :bindings
+        (kbd "j") 'undo-tree-visualize-redo
+        (kbd "k") 'undo-tree-visualize-undo
+        (kbd "h") 'undo-tree-visualize-switch-branch-left
+        (kbd "l") 'undo-tree-visualize-switch-branch-right))))
 
 (defun spacemacs-editing/init-uuidgen ()
   (use-package uuidgen
@@ -323,3 +432,8 @@
         "iU4" 'spacemacs/uuidgen-4
         "iUU" 'spacemacs/uuidgen-4))))
 
+(defun spacemacs-editing/init-ws-butler ()
+  ;; not deferred on purpose, init-spacemacs-whitespace-cleanup need
+  ;; it to be loaded.
+  (use-package ws-butler
+    :config (spacemacs|hide-lighter ws-butler-mode)))
